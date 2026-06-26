@@ -35,20 +35,23 @@ const load = async () => {
 load();
 
 export const useMaterialRoutes = () => {
-  const addRoute = ({ material, oreType, location }) => {
+  const addRoute = ({ material, oreType }) => {
     const route = {
       id: tempId(),
       material: material === "Waste" ? "Waste" : "Ore",
       oreType: normalize(oreType),
-      location: normalize(location),
+      location: "",
     };
-    if (!route.oreType || !route.location) return { ok: false, reason: "empty" };
+    if (!route.oreType) return { ok: false, reason: "empty" };
 
     routes.value = [...routes.value, route];
 
     supabase
       .from("material_routes")
-      .insert({ material: route.material, ore_type: route.oreType, location: route.location })
+      // Destination (location) is managed separately now (the Locations master
+      // page → dumping_areas); material_routes only pairs material type + ore
+      // type. The column is NOT NULL, so write an empty string.
+      .insert({ material: route.material, ore_type: route.oreType, location: "" })
       .select("id, material, ore_type, location")
       .single()
       .then(({ data, error }) => {
@@ -63,13 +66,12 @@ export const useMaterialRoutes = () => {
     return { ok: true, route };
   };
 
-  const updateRoute = (id, { material, oreType, location }) => {
+  const updateRoute = (id, { material, oreType }) => {
     const next = {
       material: material === "Waste" ? "Waste" : "Ore",
       oreType: normalize(oreType),
-      location: normalize(location),
     };
-    if (!next.oreType || !next.location) return { ok: false, reason: "empty" };
+    if (!next.oreType) return { ok: false, reason: "empty" };
 
     const prev = routes.value.find((route) => route.id === id);
     routes.value = routes.value.map((route) => (route.id === id ? { ...route, ...next } : route));
@@ -77,7 +79,8 @@ export const useMaterialRoutes = () => {
     if (!String(id).startsWith("tmp-")) {
       supabase
         .from("material_routes")
-        .update({ material: next.material, ore_type: next.oreType, location: next.location })
+        // location left untouched (managed on the Locations page).
+        .update({ material: next.material, ore_type: next.oreType })
         .eq("id", id)
         .then(({ error }) => {
           // Roll back to the previous values on failure.

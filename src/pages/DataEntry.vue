@@ -20,13 +20,15 @@ const { routes: materialRoutes } = useMaterialRoutes();
 const { selection } = useShiftSelection();
 const {
   areas: liveAreas,
+  dumpingAreaCodes,
   excavators,
   entries,
   sumBucket,
+  getBucket,
   truckModels,
   addExcavator,
   updateExcavator,
-  removeExcavator,
+  removeExcavatorTripsForDate,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,
@@ -34,7 +36,7 @@ const {
   setTruckFactor,
 } = useEntryStore();
 
-const { getPlans, savePlan, removePlan } = usePlanProduction();
+const { getDatePlans, savePlan, removePlan } = usePlanProduction();
 
 const TRUCKS = computed(() => truckModels.value.map((row) => row.code));
 
@@ -45,6 +47,24 @@ const visitedAreas = ref(new Set());
 const areaTabs = computed(() =>
   Array.from(new Set([...pits.value.map((pit) => pit.name), ...liveAreas.value, ...visitedAreas.value])).sort((a, b) => a.localeCompare(b)),
 );
+
+// Excavators that actually logged trips for the selected date (both shifts). The
+// Excavator master page is only a dropdown source, so the step card counts what's
+// been entered here — like the Plan Production card counts entered patterns — not
+// the size of the master roster. Only currently-active excavators count: removing
+// one (soft delete) leaves its trips in the DB, but it should drop off this tally.
+const enteredExcavatorCount = computed(() => {
+  const activeUids = new Set(excavators.value.map((excavator) => excavator.uid));
+  const used = new Set();
+  ["Day", "Night"].forEach((shiftType) => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      Object.entries(getBucket(selection.date, shiftType, hour)).forEach(([uid, entry]) => {
+        if (activeUids.has(uid) && excTotal(entry) > 0) used.add(uid);
+      });
+    }
+  });
+  return used.size;
+});
 
 const [t, setTweak] = useTweaks({
   accent: "#d99a00",
@@ -152,9 +172,11 @@ const continueToDrillLog = () => {
 };
 
 // Hydrate the local pit editing buffer from the persisted plan whenever the
-// selected date/shift changes (the plan store reloads on date change). Editing
-// in place stays local until the field blurs (persistSelectedPit).
-const persistedPlans = computed(() => getPlans(selection.date, selection.shiftType));
+// selected date changes (the plan store reloads on date change). Plan Production
+// is one daily plan covering both shifts, so this is the whole date's merged plan
+// regardless of the selected shift. Editing stays local until the field blurs
+// (persistSelectedPit).
+const persistedPlans = computed(() => getDatePlans(selection.date));
 watch(
   persistedPlans,
   (plans) => {
@@ -255,6 +277,18 @@ const selectedArea = computed(() => (areaTabs.value.includes(area.value) ? area.
 const selectedIndex = computed(() => Math.max(0, areaTabs.value.indexOf(selectedArea.value)));
 const detailRows = computed(() => excavators.value.filter((excavator) => excavator.area === selectedArea.value));
 const detailTrips = computed(() => detailRows.value.reduce((sum, excavator) => sum + excTotal(entries.value[excavator.uid]), 0));
+
+// Excavator name picker options: the registered excavator codes from the
+// Excavator master page (the live active roster), so the EXCAVATOR cell is a
+// dropdown of known units instead of a free-text field. Always includes the
+// row's own current code as a fallback.
+const excavatorCodeOptions = computed(() =>
+  Array.from(new Set(excavators.value.map((excavator) => excavator.name).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+);
+const rowExcavatorOptions = (exc) => {
+  const list = excavatorCodeOptions.value;
+  return exc.name && !list.includes(exc.name) ? [exc.name, ...list] : list;
+};
 // Step 2 plan (soil/ore/total) for the area currently selected in Step 3.
 const selectedAreaPlan = computed(() => {
   const values = pitAmounts.value[selectedArea.value] ?? { soil: "", ore: "" };
@@ -377,8 +411,11 @@ const addExc = (targetArea) => {
   addExcavator(targetArea);
 };
 
+// Remove this excavator's entered trips for the whole selected date (both shifts),
+// keeping the unit in the Excavator master/dropdown. Clears the data and drops it
+// from the entered-units tally without deleting the master record.
 const deleteExc = (id) => {
-  removeExcavator(id);
+  removeExcavatorTripsForDate(id, selection.date);
   if (openUid.value === id) openUid.value = null;
 };
 
@@ -402,42 +439,54 @@ const materialTypeOf = (oreType) => {
 const oreTypesForType = (materialType) =>
   Array.from(new Set(materialRoutes.value.filter((item) => item.material === materialType).map((item) => item.oreType))).sort((a, b) => a.localeCompare(b));
 
-const locationsForOre = (oreType) =>
-  Array.from(new Set(materialRoutes.value.filter((item) => item.oreType === oreType).map((item) => item.location))).sort((a, b) => a.localeCompare(b));
+// "To location" is its own master now (the Locations page → dumping_areas),
+// independent of the material route: every row offers the same destination list.
+// Until a project's locations have been migrated into the Locations master, fall
+// back to any locations still referenced in material_routes so the dropdown is
+// never empty; picking one migrates it into the master on save (getOrCreateDumpingAreaId).
+const locationOptions = computed(() => {
+  const fromMaster = dumpingAreaCodes.value;
+  const fromRoutes = materialRoutes.value.map((route) => route.location).filter(Boolean);
+  return Array.from(new Set([...fromMaster, ...fromRoutes])).sort((a, b) => a.localeCompare(b));
+});
 
 // Options for a row's selects, always including the row's current value so a
-// previously-saved combination still shows even if its route was later removed.
+// previously-saved combination still shows even if its route/location was later removed.
 const rowOreOptions = (row) => {
   const list = oreTypesForType(materialTypeOf(row.material));
   return row.material && !list.includes(row.material) ? [row.material, ...list] : list;
 };
 
 const rowLocationOptions = (row) => {
-  const list = locationsForOre(row.material);
+  const list = locationOptions.value;
   return row.dump && !list.includes(row.dump) ? [row.dump, ...list] : list;
 };
 
-// Changing the material type picks the first ore type of that type (and its
-// first destination); changing the ore type picks that ore type's first route.
+// Changing the material type picks the first ore type of that type; the
+// destination (To location) is independent so the row keeps its current value.
 const setRowMaterialType = (row, materialType) => {
   const ore = oreTypesForType(materialType)[0] ?? "";
-  const dump = locationsForOre(ore)[0] ?? "";
-  setEntryRow(row, { material: ore, dump });
+  setEntryRow(row, { material: ore });
 };
 
 const setRowOreType = (row, oreType) => {
-  const dump = locationsForOre(oreType)[0] ?? row.dump;
-  setEntryRow(row, { material: oreType, dump });
+  setEntryRow(row, { material: oreType });
 };
 
-// A fresh row defaults to the first material route so its dropdowns show a
-// valid material type / ore type / location combination immediately.
+// A fresh row defaults its material type / ore type to the first material route
+// and its To location to the first available destination, so every dropdown shows
+// a valid value (and saves) without the user having to touch them.
 const defaultRouteFor = (uid) => {
   const first = materialRoutes.value[0];
   if (!first) return;
   const rows = entries.value[uid]?.rows ?? [];
   const newRow = rows[rows.length - 1];
-  if (newRow) updateEntryRow(uid, newRow.id, { material: first.oreType, dump: first.location });
+  if (newRow) {
+    updateEntryRow(uid, newRow.id, {
+      material: first.oreType,
+      dump: newRow.dump || locationOptions.value[0] || first.location || "",
+    });
+  }
 };
 
 const tripSaveState = ref("idle"); // idle | saving | saved | error
@@ -524,7 +573,7 @@ onUnmounted(() => {
           <span class="entry-step-badge">2</span>
           <div>
             <span class="entry-step-title">Excavators</span>
-            <span class="entry-step-sub">{{ excavators.length }} units</span>
+            <span class="entry-step-sub">{{ enteredExcavatorCount }} units</span>
           </div>
         </button>
       </div>
@@ -729,12 +778,13 @@ onUnmounted(() => {
             <div v-for="exc in detailRows" :key="exc.uid" class="exc-row">
               <div class="exc-cell exc-name">
                 <StatusDot :status="exc.status" />
-                <input
-                  class="exc-name-input"
-                  type="text"
+                <select
+                  class="exc-name-input exc-name-select"
                   :value="exc.name"
                   @change="setExc(exc.uid, { name: $event.target.value })"
-                />
+                >
+                  <option v-for="code in rowExcavatorOptions(exc)" :key="code" :value="code">{{ code }}</option>
+                </select>
               </div>
               <div class="exc-cell num">
                 <input
@@ -770,7 +820,7 @@ onUnmounted(() => {
                 <button class="exc-enter-btn" type="button" @click="openUid = exc.uid">Enter trips ▸</button>
               </div>
               <div class="exc-cell">
-                <button class="gt-del" type="button" aria-label="Remove excavator" @click="deleteExc(exc.uid)">x</button>
+                <button class="gt-del" type="button" aria-label="Clear this excavator's trips for the day" title="Clear this excavator's trips for the day" @click="deleteExc(exc.uid)">x</button>
               </div>
             </div>
 

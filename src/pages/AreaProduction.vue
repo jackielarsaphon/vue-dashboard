@@ -218,7 +218,7 @@ const areaCards = computed(() => {
             <div class="kpi-unit">Leading</div>
           </div>
           <div class="kpi-side">
-            <div class="kpi-trip mono accent">+{{ fmt(bestArea.delta) }}</div>
+            <div class="kpi-trip mono accent">{{ bestArea.delta >= 0 ? "+ " : "- " }}{{ fmt(Math.abs(bestArea.delta)) }}</div>
             <div class="kpi-unit">Tonnes</div>
           </div>
         </div>

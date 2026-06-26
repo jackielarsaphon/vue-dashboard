@@ -3,7 +3,7 @@ import { computed, ref, watchEffect } from "vue";
 import { useAreaTargets } from "../composables/useAreaTargets.js";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
-import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP, tonnesPerTripFor, DEFAULT_TONNES_PER_TRIP } from "../composables/useEntryStore.js";
+import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
@@ -33,37 +33,21 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, entries, totals, sumBucket, getBucket, truckModels } = useEntryStore();
-const { planTonnesForShift, getPlans } = usePlanProduction();
+const { excavators, entries, totals, sumBucket, getBucket } = useEntryStore();
+const { planTonnesForDate, planMaterialTotalsForDate } = usePlanProduction();
 const { areaTarget } = useAreaTargets();
 
 // KPI-card targets are derived from Plan Production, not a fixed number. The plan
-// figures (soil = Waste, ore = ORE) are entered as TRIP counts per pit, so the
-// tonnage target is plan-trips × tonnes-per-trip. The plan has no truck-model
-// breakdown, so we use the main truck model's weekly factor (truckModels is sorted
-// with the primary model first; tonnesPerTripFor is date-aware). Summed across both
-// shifts of the selected date.
-const mainTripFactor = computed(() => {
-  const mainCode = truckModels.value[0]?.code;
-  return mainCode ? tonnesPerTripFor(mainCode) : DEFAULT_TONNES_PER_TRIP;
-});
-const planTripTotals = computed(() => {
-  let waste = 0;
-  let ore = 0;
-  ["Day", "Night"].forEach((shiftType) => {
-    Object.values(getPlans(selection.date, shiftType)).forEach((plan) => {
-      waste += plan.soil || 0;
-      ore += plan.ore || 0;
-    });
-  });
-  return { waste, ore };
-});
-const kpiTargets = computed(() => {
-  const factor = mainTripFactor.value;
-  const waste = planTripTotals.value.waste * factor;
-  const ore = planTripTotals.value.ore * factor;
-  return { production: waste + ore, waste, ore };
-});
+// figures (soil = Waste, ore = ORE) are entered as TONNES per pit (production_plans
+// .soil_tonnes / .ore_tonnes), so the tonnage target is simply their sum — the same
+// tonnes the cards compare against. Plan Production is one daily plan covering both
+// shifts, so this is the whole date's plan.
+const planTonnesTotals = computed(() => planMaterialTotalsForDate(selection.date));
+const kpiTargets = computed(() => ({
+  production: planTonnesTotals.value.waste + planTonnesTotals.value.ore,
+  waste: planTonnesTotals.value.waste,
+  ore: planTonnesTotals.value.ore,
+}));
 
 const kpiCards = computed(() => [
   { label: "Total Production", k: { ...totals.value.production, target: kpiTargets.value.production }, accent: "var(--accent)", kind: "prod" },
@@ -71,7 +55,8 @@ const kpiCards = computed(() => [
   { label: "Total ORE", k: { ...totals.value.ore, target: kpiTargets.value.ore }, accent: "var(--ore)", kind: "ore" },
 ]);
 
-// Per-excavator stats for the currently selected hour (date + shift + hour in TopBar).
+// Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
+// and the "BCM by hour" chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
   excavators.value.map((excavator) => {
     const entry = entries.value[excavator.uid];
@@ -97,14 +82,56 @@ const excRows = computed(() =>
   }),
 );
 
+// Per-excavator WASTE/ORE trips for the WHOLE selected date — both shifts, every
+// hour — built only from trips actually entered in Data entry
+// (public.production_entries). The Excavator detail table and the Production by
+// excavator chart use this, so only excavators that logged trips that day show up
+// (idle units from the master roster are left out).
+const excDayTotals = computed(() => {
+  const byUid = {};
+  ["Day", "Night"].forEach((shiftType) => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      Object.entries(getBucket(selection.date, shiftType, hour)).forEach(([uid, entry]) => {
+        const acc = byUid[uid] || (byUid[uid] = { waste: 0, ore: 0 });
+        entry.rows.forEach((row) => {
+          const total = rowTotal(row);
+          if (isWaste(row.material)) acc.waste += total;
+          else acc.ore += total;
+        });
+      });
+    }
+  });
+  return byUid;
+});
+
+const excDayRows = computed(() =>
+  excavators.value
+    .map((excavator) => {
+      const { waste = 0, ore = 0 } = excDayTotals.value[excavator.uid] || {};
+      return {
+        exc: excavator.name,
+        trucks: excavator.trucks,
+        area: excavator.area,
+        status: excavator.status,
+        remark: (excavator.notes || "").trim() || STATUS_REMARK[excavator.status] || "Normal",
+        trip: waste + ore,
+        oreTrip: ore,
+        wasteTrip: waste,
+        waste: waste * BCM_PER_TRIP,
+        ore: ore * BCM_PER_TRIP,
+      };
+    })
+    .filter((row) => row.trip > 0),
+);
+
 const sortKey = ref("exc");
 const asc = ref(true);
 const area = ref("ALL");
-const areas = computed(() => ["ALL", ...Array.from(new Set(excavators.value.map((excavator) => excavator.area)))]);
-const maxTrip = computed(() => Math.max(1, ...excRows.value.map((row) => row.trip)));
+const areas = computed(() => ["ALL", ...Array.from(new Set(excDayRows.value.map((row) => row.area).filter(Boolean)))]);
+const maxTrip = computed(() => Math.max(1, ...excDayRows.value.map((row) => row.trip)));
 
 const rows = computed(() => {
-  const filtered = area.value === "ALL" ? [...excRows.value] : excRows.value.filter((row) => row.area === area.value);
+  const filtered = area.value === "ALL" ? [...excDayRows.value] : excDayRows.value.filter((row) => row.area === area.value);
   filtered.sort((a, b) => {
     const av = a[sortKey.value];
     const bv = b[sortKey.value];
@@ -129,7 +156,7 @@ const setSort = (key) => {
   }
 };
 
-const productionRows = computed(() => [...excRows.value].sort((a, b) => b.trip - a.trip));
+const productionRows = computed(() => [...excDayRows.value].sort((a, b) => b.trip - a.trip));
 
 const fleetStats = computed(() => {
   const excavatorCount = excavators.value.length;
@@ -140,9 +167,6 @@ const fleetStats = computed(() => {
 });
 
 // Shift summary: Day vs Night BCM totals for the selected date (sum across all 24 hours).
-// PLAN is driven entirely by the Plan Production step (public.production_plans,
-// summed per shift): the sum of every pattern's soil + ore for that shift.
-const planFor = (shiftType) => planTonnesForShift(selection.date, shiftType);
 const shiftTotals = (shiftType) => {
   let soft = 0;
   let ore = 0;
@@ -154,11 +178,13 @@ const shiftTotals = (shiftType) => {
   return { soft: soft * BCM_PER_TRIP, ore: ore * BCM_PER_TRIP };
 };
 const shifts = computed(() => [
-  { key: "day", name: "Day", ...shiftTotals("Day"), plan: planFor("Day"), color: "var(--day)" },
-  { key: "night", name: "Night", ...shiftTotals("Night"), plan: planFor("Night"), color: "var(--night)" },
+  { key: "day", name: "Day", ...shiftTotals("Day"), color: "var(--day)" },
+  { key: "night", name: "Night", ...shiftTotals("Night"), color: "var(--night)" },
 ]);
 const totalAll = computed(() => shifts.value.reduce((sum, item) => sum + item.soft + item.ore, 0));
-const totalPlan = computed(() => shifts.value.reduce((sum, item) => sum + item.plan, 0));
+// PLAN is the single daily Plan Production total (both shifts combined): the sum
+// of every pattern's soil + ore for the selected date.
+const totalPlan = computed(() => planTonnesForDate(selection.date));
 const planPct = computed(() => pct(totalAll.value, totalPlan.value));
 
 // Production by shift - area: Day vs Night BCM per area, for the selected date.
@@ -234,10 +260,11 @@ const shiftAreaTip = computed(() => {
   return { ...bar, x, y, tw, th };
 });
 
-// Total production by hour: CUMULATIVE series for the selected date, covering
-// BOTH shifts — Day (06→18) and Night (19→05) each accumulate independently
-// over their full hour range, then map back onto the 0–23 axis. This no longer
-// depends on the selected hour, so the whole day (day + night) is always shown.
+// Total trips by hour: PER-HOUR series for the selected date, covering BOTH shifts
+// — Day (06→18) and Night (19→05) — mapped onto the operational-day axis. Each bar
+// is that hour's own trips (NOT a running total), so a bar of 10 means 10 trips in
+// that hour. Hours after the selected (Current) hour stay empty (they haven't
+// happened yet), so the chart fills exactly up to the "Current HH:00" marker.
 const hourlyChart = { W: 1100, H: 240, padL: 36, padR: 12, padT: 18, padB: 38 };
 const DAY_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 const NIGHT_HOURS = [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
@@ -245,26 +272,30 @@ const NIGHT_HOURS = [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
 // chronologically through the Night shift — 06,07,…,18,19,…,23,00,…,05 — instead
 // of plain calendar order 00→23.
 const HOUR_ORDER = [...DAY_HOURS, ...NIGHT_HOURS];
+// Wall-clock start of a (date, shift, hour) slot. Night hours 00–05 happen on the
+// morning after the shift date, so they map to date + 1 (mirrors TopBar).
+const slotStart = (date, shiftType, hour) => {
+  const base = new Date(`${date}T00:00:00`);
+  if (shiftType === "Night" && hour <= 5) base.setDate(base.getDate() + 1);
+  base.setHours(hour, 0, 0, 0);
+  return base;
+};
 const hourlySeries = computed(() => {
   const byHour = {};
-  // Accumulate each shift over its full hour order, independent of the selected
-  // hour, so both Day and Night are always visible.
+  // Hours chronologically after the selected (Current) slot haven't happened yet,
+  // so leave them empty instead of drawing a 0 bar.
+  const cutoff = slotStart(selection.date, selection.shiftType, selection.hour).getTime();
   [
     { type: "Day", order: DAY_HOURS },
     { type: "Night", order: NIGHT_HOURS },
   ].forEach(({ type, order }) => {
-    let cumSoft = 0;
-    let cumOre = 0;
     order.forEach((hour) => {
-      const { soft, ore } = sumBucket(selection.date, type, hour);
-      cumSoft += soft;
-      cumOre += ore;
-      byHour[hour] = { soft: cumSoft, ore: cumOre };
+      byHour[hour] = slotStart(selection.date, type, hour).getTime() > cutoff ? null : sumBucket(selection.date, type, hour);
     });
   });
   return HOUR_ORDER.map((hour) => {
     const v = byHour[hour] ?? { soft: 0, ore: 0 };
-    return { t: String(hour).padStart(2, "0"), soft: v.soft, ore: v.ore, isCurrent: hour === selection.hour };
+    return { t: String(hour).padStart(2, "0"), soft: v.soft, ore: v.ore, isCurrent: hour === selection.hour, future: byHour[hour] === null };
   });
 });
 const hourlyMax = computed(() => {
@@ -480,7 +511,7 @@ const areaBars = computed(() => {
             <g v-for="bar in hourlyBars" :key="bar.t" :class="{ current: bar.isCurrent }">
               <rect :x="bar.x" :y="bar.baseY - bar.softH" :width="bar.bw" :height="bar.softH" fill="#8a5a2b" :opacity="bar.isCurrent ? 1 : 0.88" />
               <rect :x="bar.x" :y="bar.baseY - bar.softH - bar.oreH" :width="bar.bw" :height="bar.oreH" fill="var(--ore)" />
-              <text :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH - bar.oreH - 4" class="bar-label mono" text-anchor="middle">{{ bar.total }}</text>
+              <text v-if="!bar.future" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH - bar.oreH - 4" class="bar-label mono" text-anchor="middle">{{ bar.total }}</text>
               <!-- Per-segment values: Waste (brown) and ORE (gold) shown separately -->
               <text v-if="bar.softH > 14" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH / 2 + 4" class="seg-label mono on-day" text-anchor="middle">{{ bar.soft }}</text>
               <text v-if="bar.oreH > 14" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH - bar.oreH / 2 + 4" class="seg-label mono" text-anchor="middle">{{ bar.ore }}</text>

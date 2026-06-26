@@ -5,13 +5,23 @@ import { useEntryStore } from "./useEntryStore.js";
 
 // Persistence + reads for the "Plan Production" step on the Data entry page.
 // Each plan row is one pattern/pit (a free-form code typed in the search box)
-// for a (date, shift) with a soil (waste) and ore tonnage target, stored in
-// public.production_plans. Module-level singleton state so DataEntry (editing)
-// and FleetOverview (the PLAN figure) share one reactive cache, mirroring
-// useEntryStore's convention.
+// with a soil (waste) and ore tonnage target, stored in public.production_plans.
+//
+// Plan Production is ONE daily plan shared by both shifts: editing and the PLAN
+// figure cover the whole date, not a single shift. Rows still hang off a shift_id
+// (the schema requires it), so new plans are written to a canonical shift for the
+// date and reads merge both shifts — that keeps the daily total from being either
+// hidden on the unselected shift or double-counted across the two.
+//
+// Module-level singleton state so DataEntry (editing) and FleetOverview (the PLAN
+// figure) share one reactive cache, mirroring useEntryStore's convention.
 
 const { selection } = useShiftSelection();
 const { ensureShift } = useEntryStore();
+
+// New daily plans are stored against this shift; the other shift is kept empty.
+const CANONICAL_SHIFT = "Day";
+const OTHER_SHIFT = "Night";
 
 const planKey = (date, shiftType) => `${date}_${shiftType}`;
 
@@ -54,19 +64,54 @@ watch(() => selection.date, (date) => fetchPlans(date), { immediate: true });
 
 const getPlans = (date, shiftType) => plansByKey.value[planKey(date, shiftType)] || {};
 
-// Total planned tonnage (soil + ore across every pattern) for a shift, and for
-// a whole date (both shifts) — what FleetOverview shows as PLAN.
-const planTonnesForShift = (date, shiftType) =>
-  Object.values(getPlans(date, shiftType)).reduce((sum, row) => sum + row.soil + row.ore, 0);
-const planTonnesForDate = (date) => planTonnesForShift(date, "Day") + planTonnesForShift(date, "Night");
-const patternCount = (date, shiftType) => Object.keys(getPlans(date, shiftType)).length;
+// The daily plan: both shifts merged into one map (pattern -> { soil, ore }). New
+// plans live on the canonical shift only, but reads merge both so any older
+// per-shift data still shows and sums correctly (duplicates are added together).
+const getDatePlans = (date) => {
+  const merged = {};
+  ["Day", "Night"].forEach((shiftType) => {
+    Object.entries(getPlans(date, shiftType)).forEach(([code, { soil, ore }]) => {
+      const cur = merged[code] || { soil: 0, ore: 0 };
+      merged[code] = { soil: cur.soil + soil, ore: cur.ore + ore };
+    });
+  });
+  return merged;
+};
 
-// Upsert one pattern's soil/ore for the current selection's date + shift.
+// Total planned tonnage (soil + ore across every pattern) for the whole date —
+// both shifts combined — which is what FleetOverview shows as PLAN.
+const planTonnesForDate = (date) =>
+  Object.values(getDatePlans(date)).reduce((sum, row) => sum + row.soil + row.ore, 0);
+// Waste (soil) / ORE split of the daily plan, for the KPI-card targets.
+const planMaterialTotalsForDate = (date) =>
+  Object.values(getDatePlans(date)).reduce(
+    (acc, row) => ({ waste: acc.waste + row.soil, ore: acc.ore + row.ore }),
+    { waste: 0, ore: 0 },
+  );
+const patternCountForDate = (date) => Object.keys(getDatePlans(date)).length;
+
+// Delete one pattern's plan row from a specific (date, shift) in the database.
+const deletePatternFromShift = async (date, shiftType, code) => {
+  const { data: shift } = await supabase
+    .from("shifts")
+    .select("id")
+    .eq("shift_date", date)
+    .eq("shift_type", shiftType)
+    .maybeSingle();
+  if (shift) {
+    await supabase.from("production_plans").delete().eq("shift_id", shift.id).eq("pattern_code", code);
+  }
+};
+
+// Upsert one pattern's soil/ore into the daily plan for the selected date. The
+// plan covers both shifts, so it's always written to the canonical shift (not the
+// currently selected one); any stale copy of the pattern on the other shift is
+// dropped so the merged daily total isn't doubled.
 const savePlan = async (patternCode, { soil = 0, ore = 0 } = {}) => {
   const code = String(patternCode || "").trim();
   if (!code) return false;
 
-  const shiftId = await ensureShift(selection.date, selection.shiftType);
+  const shiftId = await ensureShift(selection.date, CANONICAL_SHIFT);
   if (!shiftId) return false;
 
   const { error } = await supabase
@@ -77,40 +122,48 @@ const savePlan = async (patternCode, { soil = 0, ore = 0 } = {}) => {
     );
   if (error) return false;
 
-  const key = planKey(selection.date, selection.shiftType);
+  const canonicalKey = planKey(selection.date, CANONICAL_SHIFT);
+  const otherKey = planKey(selection.date, OTHER_SHIFT);
+  const otherBucket = { ...(plansByKey.value[otherKey] || {}) };
+  // Consolidate onto the canonical shift if an older copy lives on the other one.
+  if (code in otherBucket) {
+    delete otherBucket[code];
+    await deletePatternFromShift(selection.date, OTHER_SHIFT, code);
+  }
+
   plansByKey.value = {
     ...plansByKey.value,
-    [key]: { ...(plansByKey.value[key] || {}), [code]: { soil: Number(soil) || 0, ore: Number(ore) || 0 } },
+    [canonicalKey]: { ...(plansByKey.value[canonicalKey] || {}), [code]: { soil: Number(soil) || 0, ore: Number(ore) || 0 } },
+    [otherKey]: otherBucket,
   };
   return true;
 };
 
-// Remove one pattern from the current selection's date + shift.
+// Remove one pattern from the daily plan (both shifts) for the selected date.
 const removePlan = async (patternCode) => {
   const code = String(patternCode || "").trim();
-  const key = planKey(selection.date, selection.shiftType);
+  if (!code) return;
 
-  const { data: shift } = await supabase
-    .from("shifts")
-    .select("id")
-    .eq("shift_date", selection.date)
-    .eq("shift_type", selection.shiftType)
-    .maybeSingle();
-  if (shift) {
-    await supabase.from("production_plans").delete().eq("shift_id", shift.id).eq("pattern_code", code);
-  }
+  await Promise.all(["Day", "Night"].map((shiftType) => deletePatternFromShift(selection.date, shiftType, code)));
 
-  const bucket = { ...(plansByKey.value[key] || {}) };
-  delete bucket[code];
-  plansByKey.value = { ...plansByKey.value, [key]: bucket };
+  const next = { ...plansByKey.value };
+  ["Day", "Night"].forEach((shiftType) => {
+    const key = planKey(selection.date, shiftType);
+    if (next[key] && code in next[key]) {
+      const bucket = { ...next[key] };
+      delete bucket[code];
+      next[key] = bucket;
+    }
+  });
+  plansByKey.value = next;
 };
 
 export const usePlanProduction = () => ({
   loading,
-  getPlans,
-  planTonnesForShift,
+  getDatePlans,
   planTonnesForDate,
-  patternCount,
+  planMaterialTotalsForDate,
+  patternCountForDate,
   savePlan,
   removePlan,
   reloadPlans: () => fetchPlans(selection.date),

@@ -8,6 +8,7 @@ import MiningArea from "../pages/MiningArea.vue";
 import MaterialRoutes from "../pages/MaterialRoutes.vue";
 import Excavator from "../pages/Excavator.vue";
 import DumpModel from "../pages/DumpModel.vue";
+import DumpLocation from "../pages/DumpLocation.vue";
 import Users from "../pages/Users.vue";
 
 // Hash history (not server history) since this app is mounted as a widget via
@@ -24,6 +25,7 @@ const router = createRouter({
     { path: "/material-routes", name: "materialroutes", component: MaterialRoutes, meta: { adminOnly: true } },
     { path: "/excavator", name: "excavator", component: Excavator, meta: { adminOnly: true } },
     { path: "/dumpmodel", name: "dumpmodel", component: DumpModel, meta: { adminOnly: true } },
+    { path: "/location", name: "location", component: DumpLocation, meta: { adminOnly: true } },
     { path: "/users", name: "users", component: Users, meta: { adminOnly: true } },
     { path: "/:pathMatch(.*)*", redirect: "/fleet" },
   ],

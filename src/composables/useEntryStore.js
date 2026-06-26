@@ -148,12 +148,11 @@ const getOrCreateShiftId = async (date, shiftType) => {
   return created.id;
 };
 
-// Dumping areas in Data entry are area-suffixed codes synthesised per excavator
-// area (e.g. DSW04B_STOCKORE), matching the original UX. The production_entries
-// FK needs a real dumping_areas row, so the first time a given code is saved we
-// create it on demand (scoped to the excavator's mining area, so it stays out of
-// the global list managed on the Dumping area admin page).
-const getOrCreateDumpingAreaId = async (code, miningAreaId) => {
+// "To location" is a global master now (managed on the Locations page). The
+// production_entries FK needs a real dumping_areas row, so the first time a code
+// is saved we create it on demand as a GLOBAL row (mining_area_id null) so it
+// shows up in the Locations master and the trip-form dropdown.
+const getOrCreateDumpingAreaId = async (code) => {
   const cached = dumpingAreasStore.items.value.find((row) => row.code === code);
   if (cached) return cached.id;
 
@@ -165,7 +164,7 @@ const getOrCreateDumpingAreaId = async (code, miningAreaId) => {
 
   const { data: created, error } = await supabase
     .from("dumping_areas")
-    .insert({ code, mining_area_id: miningAreaId })
+    .insert({ code, mining_area_id: null, active: true })
     .select("id")
     .single();
   if (!error && created) {
@@ -176,6 +175,40 @@ const getOrCreateDumpingAreaId = async (code, miningAreaId) => {
   const { data: again } = await supabase.from("dumping_areas").select("id").eq("code", code).maybeSingle();
   if (again) {
     await dumpingAreasStore.load();
+    return again.id;
+  }
+  return null;
+};
+
+// The materials master is never seeded by the setup SQL, and the trip form's
+// "material" is the ore-type code taken from material_routes — so a freshly set
+// up project has an empty materials table and no row to satisfy the
+// production_entries.material_id FK. Create it on demand (same pattern as
+// dumping areas) with is_waste inferred from the code (waste codes start with W,
+// matching the existing isWaste fallback) so trips can always be saved.
+const getOrCreateMaterialId = async (code) => {
+  const cached = materialsStore.items.value.find((row) => row.code === code);
+  if (cached) return cached.id;
+
+  const { data } = await supabase.from("materials").select("id").eq("code", code).maybeSingle();
+  if (data) {
+    await materialsStore.load();
+    return data.id;
+  }
+
+  const { data: created, error } = await supabase
+    .from("materials")
+    .insert({ code, is_waste: String(code)[0] === "W", active: true })
+    .select("id")
+    .single();
+  if (!error && created) {
+    await materialsStore.load();
+    return created.id;
+  }
+
+  const { data: again } = await supabase.from("materials").select("id").eq("code", code).maybeSingle();
+  if (again) {
+    await materialsStore.load();
     return again.id;
   }
   return null;
@@ -347,6 +380,31 @@ const removeExcavator = async (uid) => {
   await excavatorsStore.update(uid, { active: false });
 };
 
+// Clear one excavator's logged trips for an entire date (both shifts, every hour)
+// without touching the master roster — the Excavator master is just a dropdown
+// source, so "removing" it from Data entry deletes the entered data, not the unit.
+const removeExcavatorTripsForDate = async (uid, date) => {
+  const shiftIds = (await findShiftIds(date)).map((row) => row.id);
+  if (shiftIds.length) {
+    await supabase.from("production_entries").delete().in("shift_id", shiftIds).eq("excavator_id", uid);
+  }
+
+  const prefix = `${date}_`;
+  const dropFromStore = (store) => {
+    const next = { ...store.value };
+    Object.keys(next).forEach((key) => {
+      if (key.startsWith(prefix) && next[key]?.[uid]) {
+        const bucket = { ...next[key] };
+        delete bucket[uid];
+        next[key] = bucket;
+      }
+    });
+    store.value = next;
+  };
+  dropFromStore(entriesByKey);
+  dropFromStore(draftRowsByKey);
+};
+
 const addEntryRow = (excavatorUid) => {
   const key = currentKey.value;
   const drafts = { ...draftRowsByKey.value };
@@ -422,13 +480,14 @@ const updateEntryRow = async (excavatorUid, rowId, patch) => {
   const oldMaterialRow = materialsStore.items.value.find((item) => item.code === oldMaterial);
   const oldDumpRow = dumpingAreasStore.items.value.find((item) => item.code === oldDump);
   const oldTruckRow = truckModelsStore.items.value.find((item) => item.code === oldModel);
-  const nextMaterialRow = materialsStore.items.value.find((item) => item.code === nextMaterial);
   const nextTruckRow = truckModelsStore.items.value.find((item) => item.code === nextModel);
 
   // The DB row's identity (material/dump/truck model) is changing, so move it:
   // delete the old production_entries row and re-write it under the new keys,
-  // carrying the same trip count.
-  if (shiftId && excavator && oldMaterialRow && oldDumpRow && oldTruckRow && nextMaterialRow && nextTruckRow) {
+  // carrying the same trip count. Material/dumping-area for the new keys are
+  // auto-created if missing (same as setRowTrips), so the move can't silently
+  // fail just because that master row wasn't seeded.
+  if (shiftId && excavator && oldMaterialRow && oldDumpRow && oldTruckRow && nextTruckRow) {
     await supabase
       .from("production_entries")
       .delete()
@@ -440,14 +499,15 @@ const updateEntryRow = async (excavatorUid, rowId, patch) => {
       .eq("truck_model_id", oldTruckRow.id);
 
     if (trips > 0) {
-      const nextDumpId = await getOrCreateDumpingAreaId(nextDump, excavator.mining_area_id);
-      if (nextDumpId) {
+      const nextMaterialId = await getOrCreateMaterialId(nextMaterial);
+      const nextDumpId = await getOrCreateDumpingAreaId(nextDump);
+      if (nextMaterialId && nextDumpId) {
         await supabase.from("production_entries").upsert(
           {
             shift_id: shiftId,
             log_hour: selection.hour,
             excavator_id: excavatorUid,
-            material_id: nextMaterialRow.id,
+            material_id: nextMaterialId,
             dumping_area_id: nextDumpId,
             truck_model_id: nextTruckRow.id,
             mining_area_id: excavator.mining_area_id,
@@ -513,21 +573,26 @@ const setRowTrips = async (excavatorUid, rowId, rawValue) => {
     [materialCode, dumpCode, modelCode] = rowId.split("|");
   }
 
-  const materialRow = materialsStore.items.value.find((row) => row.code === materialCode);
   const truck = truckModelsStore.items.value.find((row) => row.code === modelCode);
-  if (!materialRow || !truck) return false;
+  if (!truck) return false;
 
   const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
   if (!shiftId) return false;
 
-  const dumpingAreaId = await getOrCreateDumpingAreaId(dumpCode, excavator.mining_area_id);
+  // Auto-create the material + dumping-area master rows on demand if missing, so
+  // a project whose materials/dumping_areas tables were never seeded can still
+  // save trips (the material codes come from material_routes; see helpers above).
+  const materialId = await getOrCreateMaterialId(materialCode);
+  if (!materialId) return false;
+
+  const dumpingAreaId = await getOrCreateDumpingAreaId(dumpCode);
   if (!dumpingAreaId) return false;
 
   const matchKey = {
     shift_id: shiftId,
     log_hour: selection.hour,
     excavator_id: excavatorUid,
-    material_id: materialRow.id,
+    material_id: materialId,
     dumping_area_id: dumpingAreaId,
     truck_model_id: truck.id,
   };
@@ -578,6 +643,7 @@ export const useEntryStore = () => ({
   addExcavator,
   updateExcavator,
   removeExcavator,
+  removeExcavatorTripsForDate,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,

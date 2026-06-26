@@ -33,14 +33,13 @@ const message = ref("");
 const modalOpen = ref(false);
 const modalMode = ref("add");
 const editingId = ref("");
-const draft = reactive({ material: "Ore", oreType: "", location: "" });
+const draft = reactive({ material: "Ore", oreType: "" });
 
 const openAdd = () => {
   modalMode.value = "add";
   editingId.value = "";
   draft.material = "Ore";
   draft.oreType = "";
-  draft.location = "";
   message.value = "";
   modalOpen.value = true;
 };
@@ -50,7 +49,6 @@ const openEdit = (route) => {
   editingId.value = route.id;
   draft.material = route.material;
   draft.oreType = route.oreType;
-  draft.location = route.location;
   message.value = "";
   modalOpen.value = true;
 };
@@ -63,14 +61,14 @@ const commit = () => {
   if (modalMode.value === "add") {
     const result = addRoute({ ...draft });
     if (!result.ok) {
-      message.value = "Ore type and location are required";
+      message.value = "Ore type is required";
       return;
     }
-    message.value = `${result.route.oreType} → ${result.route.location} added`;
+    message.value = `${result.route.oreType} added`;
   } else {
     const result = updateRoute(editingId.value, { ...draft });
     if (!result.ok) {
-      message.value = "Ore type and location are required";
+      message.value = "Ore type is required";
       return;
     }
     message.value = "Route updated";
@@ -80,7 +78,7 @@ const commit = () => {
 
 const deleteRoute = (route) => {
   removeRoute(route.id);
-  message.value = `${route.oreType} → ${route.location} removed`;
+  message.value = `${route.oreType} removed`;
 };
 </script>
 
@@ -92,7 +90,7 @@ const deleteRoute = (route) => {
       <div class="routes-hero-text">
         <span class="routes-eyebrow">Master data</span>
         <h1>Material Routes</h1>
-        <p>Material type, ore type and destination location for each trip route.</p>
+        <p>Material type and ore type for each trip route. Destinations are managed on the Locations page.</p>
       </div>
       <div class="routes-badge">{{ total }}</div>
     </section>
@@ -119,7 +117,6 @@ const deleteRoute = (route) => {
               <tr>
                 <th>Material type</th>
                 <th>Ore type</th>
-                <th>To location</th>
                 <th class="rt-action-col">Action</th>
               </tr>
             </thead>
@@ -127,7 +124,6 @@ const deleteRoute = (route) => {
               <tr v-for="route in routes" :key="route.id">
                 <td class="rt-material" :class="route.material === 'Waste' ? 'is-waste' : 'is-ore'">{{ route.material }}</td>
                 <td class="rt-ore mono">{{ route.oreType }}</td>
-                <td class="rt-loc mono">{{ route.location }}</td>
                 <td>
                   <div class="rt-actions">
                     <button class="mini-action" type="button" @click="openEdit(route)">Edit</button>
@@ -136,7 +132,7 @@ const deleteRoute = (route) => {
                 </td>
               </tr>
               <tr v-if="routes.length === 0">
-                <td colspan="4" class="rt-empty">No routes yet. Click “+ Add route” to create one.</td>
+                <td colspan="3" class="rt-empty">No routes yet. Click “+ Add route” to create one.</td>
               </tr>
             </tbody>
           </table>
@@ -165,17 +161,6 @@ const deleteRoute = (route) => {
             v-model="draft.oreType"
             class="mining-input mono"
             placeholder="APHH"
-            autocomplete="off"
-            @keydown.enter="commit"
-            @keydown.esc="closeModal"
-          />
-
-          <label class="mining-label" for="route-loc">To location</label>
-          <input
-            id="route-loc"
-            v-model="draft.location"
-            class="mining-input mono"
-            placeholder="ROMA181"
             autocomplete="off"
             @keydown.enter="commit"
             @keydown.esc="closeModal"

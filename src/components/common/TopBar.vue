@@ -175,6 +175,9 @@ const onHourChange = (event) => {
       <router-link v-if="isAdmin" to="/dumpmodel" custom v-slot="{ navigate }">
         <button :class="{ on: route.name === 'dumpmodel' }" type="button" @click="navigate">Dump model</button>
       </router-link>
+      <router-link v-if="isAdmin" to="/location" custom v-slot="{ navigate }">
+        <button :class="{ on: route.name === 'location' }" type="button" @click="navigate">Locations</button>
+      </router-link>
       <router-link v-if="isAdmin" to="/users" custom v-slot="{ navigate }">
         <button :class="{ on: route.name === 'users' }" type="button" @click="navigate">Users</button>
       </router-link>
