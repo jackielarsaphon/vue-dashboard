@@ -1,0 +1,22 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Production Daily Dashboard logo">
+  <defs>
+    <linearGradient id="amber" x1="64" y1="64" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2AE1F"/>
+      <stop offset="1" stop-color="#D58D04"/>
+    </linearGradient>
+    <linearGradient id="peak" x1="256" y1="150" x2="256" y2="372" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A2713"/>
+      <stop offset="1" stop-color="#241608"/>
+    </linearGradient>
+  </defs>
+
+  <!-- squircle tile -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#amber)"/>
+  <!-- subtle top sheen -->
+  <rect x="16" y="16" width="480" height="240" rx="116" fill="#FFFFFF" opacity="0.10"/>
+
+  <!-- mountain range -->
+  <path d="M104 360 L196 196 L260 286 L332 168 L408 360 Z" fill="url(#peak)"/>
+  <!-- baseline -->
+  <rect x="104" y="376" width="304" height="22" rx="11" fill="#241608"/>
+</svg>

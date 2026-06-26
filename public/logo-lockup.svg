@@ -1,0 +1,17 @@
+<svg width="560" height="140" viewBox="0 0 560 140" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Production Daily Dashboard">
+  <defs>
+    <linearGradient id="amber" x1="20" y1="20" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F2AE1F"/>
+      <stop offset="1" stop-color="#D58D04"/>
+    </linearGradient>
+  </defs>
+
+  <!-- icon -->
+  <rect x="20" y="20" width="100" height="100" rx="26" fill="url(#amber)"/>
+  <path d="M40 92 L60 56 L74 76 L90 50 L100 92 Z" fill="#241608"/>
+  <rect x="40" y="96" width="60" height="5" rx="2.5" fill="#241608"/>
+
+  <!-- wordmark -->
+  <text x="148" y="62" font-family="'Segoe UI', Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="1" fill="#1C1407">PRODUCTION DAILY</text>
+  <text x="149" y="96" font-family="'Segoe UI', Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="6" fill="#C68A0B">DASHBOARD</text>
+</svg>
