@@ -3,7 +3,7 @@ import { computed, ref, watchEffect } from "vue";
 import { useAreaTargets } from "../composables/useAreaTargets.js";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
-import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../composables/useEntryStore.js";
+import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP, tonnesPerTripFor, DEFAULT_TONNES_PER_TRIP } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
@@ -33,14 +33,42 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, entries, totals, sumBucket, getBucket } = useEntryStore();
-const { planTonnesForShift } = usePlanProduction();
+const { excavators, entries, totals, sumBucket, getBucket, truckModels } = useEntryStore();
+const { planTonnesForShift, getPlans } = usePlanProduction();
 const { areaTarget } = useAreaTargets();
 
+// KPI-card targets are derived from Plan Production, not a fixed number. The plan
+// figures (soil = Waste, ore = ORE) are entered as TRIP counts per pit, so the
+// tonnage target is plan-trips × tonnes-per-trip. The plan has no truck-model
+// breakdown, so we use the main truck model's weekly factor (truckModels is sorted
+// with the primary model first; tonnesPerTripFor is date-aware). Summed across both
+// shifts of the selected date.
+const mainTripFactor = computed(() => {
+  const mainCode = truckModels.value[0]?.code;
+  return mainCode ? tonnesPerTripFor(mainCode) : DEFAULT_TONNES_PER_TRIP;
+});
+const planTripTotals = computed(() => {
+  let waste = 0;
+  let ore = 0;
+  ["Day", "Night"].forEach((shiftType) => {
+    Object.values(getPlans(selection.date, shiftType)).forEach((plan) => {
+      waste += plan.soil || 0;
+      ore += plan.ore || 0;
+    });
+  });
+  return { waste, ore };
+});
+const kpiTargets = computed(() => {
+  const factor = mainTripFactor.value;
+  const waste = planTripTotals.value.waste * factor;
+  const ore = planTripTotals.value.ore * factor;
+  return { production: waste + ore, waste, ore };
+});
+
 const kpiCards = computed(() => [
-  { label: "Total Production", k: totals.value.production, accent: "var(--accent)", kind: "prod" },
-  { label: "Total Waste", k: totals.value.waste, accent: "#8a5a2b", kind: "waste" },
-  { label: "Total ORE", k: totals.value.ore, accent: "var(--ore)", kind: "ore" },
+  { label: "Total Production", k: { ...totals.value.production, target: kpiTargets.value.production }, accent: "var(--accent)", kind: "prod" },
+  { label: "Total Waste", k: { ...totals.value.waste, target: kpiTargets.value.waste }, accent: "#8a5a2b", kind: "waste" },
+  { label: "Total ORE", k: { ...totals.value.ore, target: kpiTargets.value.ore }, accent: "var(--ore)", kind: "ore" },
 ]);
 
 // Per-excavator stats for the currently selected hour (date + shift + hour in TopBar).
