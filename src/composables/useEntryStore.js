@@ -368,6 +368,7 @@ const addExcavator = async (area) => {
 const updateExcavator = async (uid, patch) => {
   const dbPatch = {};
   if (patch.name !== undefined) dbPatch.code = patch.name;
+  if (patch.area !== undefined) dbPatch.mining_area_id = areaIdByCode.value[patch.area] ?? null;
   if (patch.trucks !== undefined) dbPatch.truck_count = patch.trucks === "" ? 0 : Number(patch.trucks);
   if (patch.rl !== undefined) dbPatch.rl_meters = patch.rl === "" ? null : Number(patch.rl);
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;

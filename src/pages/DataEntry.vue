@@ -28,6 +28,7 @@ const {
   truckModels,
   addExcavator,
   updateExcavator,
+  removeExcavator,
   removeExcavatorTripsForDate,
   addEntryRow,
   removeEntryRow,
@@ -406,6 +407,29 @@ const commitArea = () => {
 
 const setExc = (id, patch) => updateExcavator(id, patch);
 
+// Picking a code in the EXCAVATOR cell selects which registered unit works this
+// area slot. Excavator codes are globally unique (one record per physical unit),
+// so we must NOT rename this row's record to an existing code — that violates the
+// unique-code constraint and the pick silently fails to save. Instead move the
+// chosen registered excavator into this area and drop the empty placeholder that
+// "+ Add excavator" created, so the area shows the real unit and trips log against it.
+const pickExcavator = async (row, code) => {
+  if (!code || code === row.name) return;
+  const target = excavators.value.find((excavator) => excavator.name === code);
+  if (!target || target.uid === row.uid) {
+    // Unknown code (shouldn't happen — options come from the roster): relabel.
+    setExc(row.uid, { name: code });
+    return;
+  }
+  await updateExcavator(target.uid, { area: selectedArea.value });
+  // Only clear the slot it replaced when that was an empty placeholder, so we
+  // never destroy a unit that already has trips entered for this slot.
+  if (excTotal(entries.value[row.uid]) === 0) {
+    await removeExcavator(row.uid);
+    if (openUid.value === row.uid) openUid.value = null;
+  }
+};
+
 const addExc = (targetArea) => {
   visitedAreas.value.add(targetArea);
   addExcavator(targetArea);
@@ -781,7 +805,7 @@ onUnmounted(() => {
                 <select
                   class="exc-name-input exc-name-select"
                   :value="exc.name"
-                  @change="setExc(exc.uid, { name: $event.target.value })"
+                  @change="pickExcavator(exc, $event.target.value)"
                 >
                   <option v-for="code in rowExcavatorOptions(exc)" :key="code" :value="code">{{ code }}</option>
                 </select>
