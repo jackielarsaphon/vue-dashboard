@@ -1,4 +1,4 @@
-import { reactive } from "vue";
+import { reactive, ref } from "vue";
 
 const LS_KEY = "prod-shift-selection-v1";
 
@@ -28,6 +28,13 @@ const selection = reactive({
   hour: Number.isInteger(saved?.hour) ? saved.hour : new Date().getHours(),
 });
 
+// True once the user manually picks a date/shift/hour. Module-level (a shared
+// singleton, not a component-local ref) so it survives TopBar being re-mounted
+// on every page change — that's what keeps a hand-picked date from snapping
+// back to "now" when you navigate. Deliberately NOT persisted: a fresh page
+// load starts following the clock again ("the UI changes it itself").
+const userAdjusted = ref(false);
+
 const persist = () => {
   if (typeof localStorage === "undefined") return;
   try {
@@ -53,5 +60,9 @@ export const useShiftSelection = () => {
     persist();
   };
 
-  return { selection, setDate, setShiftType, setHour };
+  const markUserAdjusted = () => {
+    userAdjusted.value = true;
+  };
+
+  return { selection, setDate, setShiftType, setHour, userAdjusted, markUserAdjusted };
 };

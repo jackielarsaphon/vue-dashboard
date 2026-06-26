@@ -7,7 +7,7 @@ import { useShiftSelection } from "../../composables/useShiftSelection.js";
 const { user, logout } = useAuth();
 const userInitial = computed(() => (user.value?.name || user.value?.username || "?").trim().charAt(0).toUpperCase());
 const isAdmin = computed(() => user.value?.role === "admin");
-const { selection, setDate, setShiftType, setHour } = useShiftSelection();
+const { selection, setDate, setShiftType, setHour, userAdjusted, markUserAdjusted } = useShiftSelection();
 
 defineProps({
   subtitle: { type: String, default: "Live" },
@@ -22,7 +22,6 @@ const handleLogout = () => {
 };
 
 const now = ref(new Date());
-const userAdjustedTime = ref(false);
 let timerId = 0;
 
 onMounted(() => {
@@ -89,7 +88,7 @@ const openDatePicker = () => {
 const onDateChange = (event) => {
   const value = event.target.value;
   if (!value || value > nowIso.value) return; // no future dates
-  userAdjustedTime.value = true; // manual pick — stop auto-snapping back to "now"
+  markUserAdjusted(); // manual pick — stop auto-snapping back to "now"
   setDate(value);
 };
 
@@ -102,7 +101,7 @@ const hours = computed(() =>
 );
 
 watchEffect(() => {
-  if (userAdjustedTime.value) return;
+  if (userAdjusted.value) return;
   if (selection.date !== autoShiftDate.value) setDate(autoShiftDate.value);
   if (selection.shiftType !== autoShiftType.value) setShiftType(autoShiftType.value);
   if (selection.hour !== autoHour.value) setHour(autoHour.value);
@@ -122,7 +121,7 @@ watchEffect(() => {
 });
 
 const toggleShift = () => {
-  userAdjustedTime.value = true;
+  markUserAdjusted();
   const nextShift = selection.shiftType === "Night" ? "Day" : "Night";
   const allowed = allowedHours(selection.date, nextShift);
   if (allowed.length === 0) return; // the whole shift is still in the future — block
@@ -131,7 +130,7 @@ const toggleShift = () => {
 };
 
 const onHourChange = (event) => {
-  userAdjustedTime.value = true;
+  markUserAdjusted();
   const hour = Number(event.target.value);
   if (isFutureSlot(selection.date, selection.shiftType, hour)) return;
   setHour(hour);
