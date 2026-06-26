@@ -26,9 +26,7 @@ const {
   sumBucket,
   getBucket,
   truckModels,
-  addExcavator,
   updateExcavator,
-  removeExcavator,
   removeExcavatorTripsForDate,
   addEntryRow,
   removeEntryRow,
@@ -407,32 +405,44 @@ const commitArea = () => {
 
 const setExc = (id, patch) => updateExcavator(id, patch);
 
-// Picking a code in the EXCAVATOR cell selects which registered unit works this
-// area slot. Excavator codes are globally unique (one record per physical unit),
-// so we must NOT rename this row's record to an existing code — that violates the
-// unique-code constraint and the pick silently fails to save. Instead move the
-// chosen registered excavator into this area and drop the empty placeholder that
-// "+ Add excavator" created, so the area shows the real unit and trips log against it.
+// Picking a code in the EXCAVATOR cell swaps this area slot to a different
+// registered unit. Codes are globally unique (one record per physical unit) and
+// excavators are created only on the Excavator master page, so we never rename or
+// create here — we move the chosen unit into this area (sets mining_area_id) and
+// unassign the one it replaced (only when that slot has no trips, so entered data
+// is never lost). The replaced unit stays in the master, free to assign elsewhere.
 const pickExcavator = async (row, code) => {
   if (!code || code === row.name) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
-  if (!target || target.uid === row.uid) {
-    // Unknown code (shouldn't happen — options come from the roster): relabel.
-    setExc(row.uid, { name: code });
-    return;
-  }
+  if (!target || target.uid === row.uid) return;
   await updateExcavator(target.uid, { area: selectedArea.value });
-  // Only clear the slot it replaced when that was an empty placeholder, so we
-  // never destroy a unit that already has trips entered for this slot.
   if (excTotal(entries.value[row.uid]) === 0) {
-    await removeExcavator(row.uid);
+    await updateExcavator(row.uid, { area: "" });
     if (openUid.value === row.uid) openUid.value = null;
   }
 };
 
-const addExc = (targetArea) => {
-  visitedAreas.value.add(targetArea);
-  addExcavator(targetArea);
+// Excavators are created on the Excavator master page; here you only place an
+// existing registered unit into the selected area (sets its mining_area_id). The
+// pool is every active excavator not already in this area.
+const addingExcavator = ref(false);
+const excavatorToAdd = ref("");
+const assignableExcavators = computed(() =>
+  excavators.value
+    .filter((excavator) => excavator.area !== selectedArea.value)
+    .map((excavator) => excavator.name)
+    .sort((a, b) => a.localeCompare(b)),
+);
+const startAddExcavator = () => {
+  excavatorToAdd.value = assignableExcavators.value[0] ?? "";
+  addingExcavator.value = true;
+};
+const commitAddExcavator = async () => {
+  const code = excavatorToAdd.value;
+  if (!code) return;
+  const target = excavators.value.find((excavator) => excavator.name === code);
+  if (target) await updateExcavator(target.uid, { area: selectedArea.value });
+  addingExcavator.value = false;
 };
 
 // Remove this excavator's entered trips for the whole selected date (both shifts),
@@ -785,7 +795,15 @@ onUnmounted(() => {
         <section class="exc-panel">
           <div class="area-side-head">
             <h2>Excavators - {{ detailRows.length }} units</h2>
-            <button class="add-exc" type="button" :disabled="!selectedArea" @click="addExc(selectedArea)">+ Add excavator</button>
+            <div v-if="addingExcavator" style="display: flex; gap: 8px; align-items: center">
+              <select v-model="excavatorToAdd" class="exc-name-input exc-name-select" :disabled="assignableExcavators.length === 0">
+                <option v-if="assignableExcavators.length === 0" value="">No registered excavators</option>
+                <option v-for="code in assignableExcavators" :key="code" :value="code">{{ code }}</option>
+              </select>
+              <button class="area-add-ok" type="button" :disabled="!excavatorToAdd" @click="commitAddExcavator">OK</button>
+              <button class="btn" type="button" @click="addingExcavator = false">Cancel</button>
+            </div>
+            <button v-else class="add-exc" type="button" :disabled="!selectedArea" @click="startAddExcavator">+ Add excavator</button>
           </div>
 
           <div class="exc-list">
@@ -849,7 +867,7 @@ onUnmounted(() => {
             </div>
 
             <div v-if="detailRows.length === 0" class="exc-empty">
-              No excavators in this area yet. Use "+ Add excavator" to create one.
+              No excavators in this area yet. Use "+ Add excavator" to assign a registered unit — create new ones on the Excavator page.
             </div>
           </div>
         </section>

@@ -20,16 +20,6 @@ export const BCM_PER_TRIP = 25;
 export const rowTotal = (row) => Number(row.trips) || 0;
 export const excTotal = (entry) => (entry ? entry.rows.reduce((sum, row) => sum + rowTotal(row), 0) : 0);
 
-const RL_SEED = {
-  DSW04B: 152,
-  NLU03A: 138,
-  NLU03B: 131,
-  NLU03C: 124,
-  TKS1A: 96,
-  TKS1B: 90,
-  TKS2A: 168,
-};
-
 // Legacy column order for the trip-entry grid (not alphabetical, matches the
 // previous hardcoded TRUCKS array so the grid doesn't visually reorder).
 const TRUCK_ORDER = ["SKT90S", "SKT105S", "CAT345", "VSCSDT"];
@@ -354,17 +344,6 @@ const totals = computed(() => {
 // Write actions
 // ---------------------------------------------------------------------------
 
-const addExcavator = async (area) => {
-  const areaId = areaIdByCode.value[area];
-  if (!areaId) return;
-  const nums = excavatorsStore.items.value.map((row) => parseInt((row.code.match(/\d+/) || [0])[0], 10) || 0);
-  const name = `E-${Math.max(500, ...nums, 0) + 1}`;
-  const peers = excavatorsStore.items.value.filter((row) => row.active && row.mining_area_id === areaId);
-  const rl = peers.length ? peers[0].rl_meters : (RL_SEED[area] ?? 120);
-  const result = await excavatorsStore.create({ code: name, mining_area_id: areaId, truck_count: 0, rl_meters: rl, notes: "", status: "ok", active: true });
-  if (result.ok && result.data) addEntryRow(result.data.id);
-};
-
 const updateExcavator = async (uid, patch) => {
   const dbPatch = {};
   if (patch.name !== undefined) dbPatch.code = patch.name;
@@ -641,7 +620,6 @@ export const useEntryStore = () => ({
   getBucket,
   truckModels,
   setTruckFactor,
-  addExcavator,
   updateExcavator,
   removeExcavator,
   removeExcavatorTripsForDate,
