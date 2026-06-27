@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient.js";
 import { useShiftSelection } from "./useShiftSelection.js";
 import { useKpiTargets } from "./useKpiTargets.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
+import { useAreaExcavatorsStore } from "../stores/areaExcavatorsStore";
 import { useMiningAreasStore } from "../stores/miningAreasStore";
 import { useMaterialsStore } from "../stores/materialsStore";
 import { useDumpingAreasStore } from "../stores/dumpingAreasStore";
@@ -42,6 +43,7 @@ const isFutureSlot = (date, shiftType, hour) => slotStart(date, shiftType, hour)
 const codeOf = (list, id) => list.find((item) => item.id === id)?.code;
 
 const excavatorsStore = useExcavatorsStore();
+const areaExcavatorsStore = useAreaExcavatorsStore();
 const miningAreasStore = useMiningAreasStore();
 const materialsStore = useMaterialsStore();
 const dumpingAreasStore = useDumpingAreasStore();
@@ -49,6 +51,13 @@ const truckModelsStore = useTruckModelsStore();
 
 const areaCodeById = computed(() => Object.fromEntries(miningAreasStore.items.value.map((row) => [row.id, row.code])));
 const areaIdByCode = computed(() => Object.fromEntries(miningAreasStore.items.value.map((row) => [row.code, row.id])));
+
+// A trip "slot" is one Data entry row = one area_excavators placement, so trips are
+// grouped by placement_id. The same excavator can therefore appear several times in
+// one pit with separate trips. Legacy production_entries with no placement fall back
+// to an excavator+pit key (they won't map to a row but still count in totals).
+const legacySlot = (excavatorId, areaId) => `leg_${excavatorId}__${areaId}`;
+const placementRow = (placementId) => areaExcavatorsStore.items.value.find((row) => row.id === placementId);
 
 const truckModels = computed(() => {
   const items = truckModelsStore.items.value.filter((row) => row.active);
@@ -73,6 +82,9 @@ export const isWaste = (materialCode) => {
   return material ? material.is_waste : String(materialCode)[0] === "W";
 };
 
+// The registered excavator roster (Excavator master). Used as the source of codes
+// for the Data entry picker. `area` here is the legacy single mining_area_id — the
+// Data entry rows no longer rely on it (they use areaExcavators below).
 const excavators = computed(() =>
   excavatorsStore.items.value
     .filter((row) => row.active)
@@ -87,7 +99,34 @@ const excavators = computed(() =>
     })),
 );
 
-const areas = computed(() => Array.from(new Set(excavators.value.map((row) => row.area).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
+const excavatorById = computed(() => Object.fromEntries(excavatorsStore.items.value.map((row) => [row.id, row])));
+
+// Per-pit placements (public.area_excavators): one row per (pit, excavator). This
+// is the Data entry roster — the same excavator can appear in several pits at once,
+// each placement carrying its own trucks/RL/note. `uid` is the excavator id (trips
+// key); `placementId` is the row id used to add/remove/edit the placement.
+const areaExcavators = computed(() =>
+  areaExcavatorsStore.items.value
+    .filter((row) => row.active)
+    .map((row) => {
+      const exc = excavatorById.value[row.excavator_id];
+      return {
+        placementId: row.id,
+        uid: row.excavator_id,
+        areaId: row.mining_area_id,
+        name: exc?.code ?? "",
+        area: areaCodeById.value[row.mining_area_id] ?? "",
+        status: row.status,
+        trucks: row.truck_count,
+        rl: row.rl_meters,
+        notes: row.notes || "",
+      };
+    })
+    .filter((row) => row.name && row.area),
+);
+
+// Pits that have at least one placed excavator (drives the area tabs).
+const areas = computed(() => Array.from(new Set(areaExcavators.value.map((row) => row.area).filter(Boolean))).sort((a, b) => a.localeCompare(b)));
 
 // The dumping-area codes managed on the Dumping area master page: global rows
 // (mining_area_id null) only, so the Data entry dropdown mirrors that master
@@ -212,6 +251,7 @@ const getOrCreateMaterialId = async (code) => {
 const fetchDateEntries = async (date) => {
   await Promise.all([
     excavatorsStore.load(),
+    areaExcavatorsStore.load(),
     miningAreasStore.load(),
     materialsStore.load(),
     dumpingAreasStore.load(),
@@ -233,7 +273,7 @@ const fetchDateEntries = async (date) => {
   if (shiftIds.length) {
     const { data, error } = await supabase
       .from("production_entries")
-      .select("log_hour, trips, excavator_id, material_id, dumping_area_id, truck_model_id, shift_id")
+      .select("log_hour, trips, excavator_id, mining_area_id, placement_id, material_id, dumping_area_id, truck_model_id, shift_id")
       .in("shift_id", shiftIds);
 
     if (!error && data) {
@@ -242,7 +282,16 @@ const fetchDateEntries = async (date) => {
         if (!shiftType) return;
         const key = keyFor(date, shiftType, row.log_hour);
         const bucket = newEntries[key] || (newEntries[key] = {});
-        const excEntry = bucket[row.excavator_id] || (bucket[row.excavator_id] = { rows: [] });
+        const slot = row.placement_id || legacySlot(row.excavator_id, row.mining_area_id);
+        const excEntry =
+          bucket[slot] ||
+          (bucket[slot] = {
+            placementId: row.placement_id || null,
+            excavatorId: row.excavator_id,
+            areaId: row.mining_area_id,
+            area: areaCodeById.value[row.mining_area_id] ?? "",
+            rows: [],
+          });
 
         const materialCode = codeOf(materialsStore.items.value, row.material_id);
         const dumpCode = codeOf(dumpingAreasStore.items.value, row.dumping_area_id);
@@ -280,13 +329,29 @@ watch(
   { immediate: true },
 );
 
+// Current (date, shift, hour) entries, keyed by trip slot (placement_id). Each value
+// carries its placementId/excavatorId/areaId/area so consumers don't need the key.
 const entries = computed(() => {
   const key = currentKey.value;
   const persisted = entriesByKey.value[key] || {};
   const drafts = draftRowsByKey.value[key] || {};
   const merged = {};
-  new Set([...Object.keys(persisted), ...Object.keys(drafts)]).forEach((uid) => {
-    merged[uid] = { rows: [...(persisted[uid]?.rows || []), ...(drafts[uid] || [])] };
+  new Set([...Object.keys(persisted), ...Object.keys(drafts)]).forEach((slot) => {
+    const meta = persisted[slot];
+    let placementId;
+    let excavatorId;
+    let areaId;
+    let area;
+    if (meta) {
+      ({ placementId, excavatorId, areaId, area } = meta);
+    } else {
+      const placement = placementRow(slot);
+      placementId = placement ? placement.id : null;
+      excavatorId = placement?.excavator_id;
+      areaId = placement?.mining_area_id;
+      area = areaCodeById.value[areaId] ?? "";
+    }
+    merged[slot] = { placementId, excavatorId, areaId, area, rows: [...(persisted[slot]?.rows || []), ...(drafts[slot] || [])] };
   });
   return merged;
 });
@@ -360,22 +425,55 @@ const removeExcavator = async (uid) => {
   await excavatorsStore.update(uid, { active: false });
 };
 
-// Clear one excavator's logged trips for an entire date (both shifts, every hour)
-// without touching the master roster — the Excavator master is just a dropdown
-// source, so "removing" it from Data entry deletes the entered data, not the unit.
-const removeExcavatorTripsForDate = async (uid, date) => {
+// --- Per-pit placement CRUD (public.area_excavators) -----------------------
+// Place an excavator into a pit. The same excavator can be placed in several pits
+// (one row each); the unique(mining_area_id, excavator_id) constraint just blocks
+// the same one twice in one pit.
+const addAreaExcavator = async (areaCode, excavatorId) => {
+  const miningAreaId = areaIdByCode.value[areaCode];
+  if (!miningAreaId || !excavatorId) return;
+  await areaExcavatorsStore.create({
+    mining_area_id: miningAreaId,
+    excavator_id: excavatorId,
+    truck_count: 0,
+    rl_meters: null,
+    status: "ok",
+    notes: "",
+    active: true,
+  });
+};
+
+// Edit a placement's per-pit fields (which excavator it is, trucks / RL / note).
+const updateAreaExcavator = async (placementId, patch) => {
+  const dbPatch = {};
+  if (patch.excavatorId !== undefined) dbPatch.excavator_id = patch.excavatorId;
+  if (patch.trucks !== undefined) dbPatch.truck_count = patch.trucks === "" ? 0 : Number(patch.trucks);
+  if (patch.rl !== undefined) dbPatch.rl_meters = patch.rl === "" ? null : Number(patch.rl);
+  if (patch.notes !== undefined) dbPatch.notes = patch.notes;
+  if (patch.status !== undefined) dbPatch.status = patch.status;
+  await areaExcavatorsStore.update(placementId, dbPatch);
+};
+
+const removeAreaExcavatorPlacement = async (placementId) => {
+  await areaExcavatorsStore.remove(placementId);
+};
+
+// Clear one placement's (one Data entry row's) logged trips for an entire date
+// (both shifts, every hour). Scoped by placement_id, so another row of the same
+// excavator — in this pit or another — is never touched.
+const removePlacementTripsForDate = async (placementId, date) => {
   const shiftIds = (await findShiftIds(date)).map((row) => row.id);
   if (shiftIds.length) {
-    await supabase.from("production_entries").delete().in("shift_id", shiftIds).eq("excavator_id", uid);
+    await supabase.from("production_entries").delete().in("shift_id", shiftIds).eq("placement_id", placementId);
   }
 
   const prefix = `${date}_`;
   const dropFromStore = (store) => {
     const next = { ...store.value };
     Object.keys(next).forEach((key) => {
-      if (key.startsWith(prefix) && next[key]?.[uid]) {
+      if (key.startsWith(prefix) && next[key]?.[placementId]) {
         const bucket = { ...next[key] };
-        delete bucket[uid];
+        delete bucket[placementId];
         next[key] = bucket;
       }
     });
@@ -385,10 +483,11 @@ const removeExcavatorTripsForDate = async (uid, date) => {
   dropFromStore(draftRowsByKey);
 };
 
-const addEntryRow = (excavatorUid) => {
+const addEntryRow = (placementId) => {
   const key = currentKey.value;
+  const slot = placementId;
   const drafts = { ...draftRowsByKey.value };
-  const list = [...(drafts[key]?.[excavatorUid] || [])];
+  const list = [...(drafts[key]?.[slot] || [])];
   list.push({
     id: draftUid(),
     material: materialsStore.items.value[0]?.code ?? "",
@@ -396,16 +495,17 @@ const addEntryRow = (excavatorUid) => {
     model: truckModels.value[0]?.code ?? "",
     trips: 0,
   });
-  drafts[key] = { ...(drafts[key] || {}), [excavatorUid]: list };
+  drafts[key] = { ...(drafts[key] || {}), [slot]: list };
   draftRowsByKey.value = drafts;
 };
 
-const removeEntryRow = async (excavatorUid, rowId) => {
+const removeEntryRow = async (placementId, rowId) => {
   const key = currentKey.value;
+  const slot = placementId;
   if (rowId.startsWith("draft-")) {
     const drafts = { ...draftRowsByKey.value };
-    const list = (drafts[key]?.[excavatorUid] || []).filter((row) => row.id !== rowId);
-    drafts[key] = { ...(drafts[key] || {}), [excavatorUid]: list };
+    const list = (drafts[key]?.[slot] || []).filter((row) => row.id !== rowId);
+    drafts[key] = { ...(drafts[key] || {}), [slot]: list };
     draftRowsByKey.value = drafts;
     return;
   }
@@ -421,22 +521,26 @@ const removeEntryRow = async (excavatorUid, rowId) => {
       .delete()
       .eq("shift_id", shiftId)
       .eq("log_hour", selection.hour)
-      .eq("excavator_id", excavatorUid)
+      .eq("placement_id", placementId)
       .eq("material_id", materialRow.id)
       .eq("dumping_area_id", dumpRow.id)
       .eq("truck_model_id", truckRow.id);
   }
 
   const bucket = entriesByKey.value[key];
-  const entry = bucket && bucket[excavatorUid];
+  const entry = bucket && bucket[slot];
   if (entry) entry.rows = entry.rows.filter((row) => row.id !== rowId);
 };
 
-const updateEntryRow = async (excavatorUid, rowId, patch) => {
+const updateEntryRow = async (placementId, rowId, patch) => {
   const key = currentKey.value;
+  const slot = placementId;
+  const placement = placementRow(placementId);
+  const excavatorId = placement?.excavator_id;
+  const areaId = placement?.mining_area_id;
 
   if (rowId.startsWith("draft-")) {
-    const row = draftRowsByKey.value[key]?.[excavatorUid]?.find((item) => item.id === rowId);
+    const row = draftRowsByKey.value[key]?.[slot]?.find((item) => item.id === rowId);
     if (row) Object.assign(row, patch);
     return;
   }
@@ -449,13 +553,12 @@ const updateEntryRow = async (excavatorUid, rowId, patch) => {
   if (nextId === rowId) return;
 
   const bucket = entriesByKey.value[key];
-  const entry = bucket && bucket[excavatorUid];
+  const entry = bucket && bucket[slot];
   if (!entry) return;
   const row = entry.rows.find((item) => item.id === rowId);
   if (!row) return;
   const trips = Number(row.trips) || 0;
 
-  const excavator = excavatorsStore.items.value.find((item) => item.id === excavatorUid);
   const shiftId = shiftIdCache.value[shiftCacheKey(selection.date, selection.shiftType)];
   const oldMaterialRow = materialsStore.items.value.find((item) => item.code === oldMaterial);
   const oldDumpRow = dumpingAreasStore.items.value.find((item) => item.code === oldDump);
@@ -463,17 +566,17 @@ const updateEntryRow = async (excavatorUid, rowId, patch) => {
   const nextTruckRow = truckModelsStore.items.value.find((item) => item.code === nextModel);
 
   // The DB row's identity (material/dump/truck model) is changing, so move it:
-  // delete the old production_entries row and re-write it under the new keys,
-  // carrying the same trip count. Material/dumping-area for the new keys are
-  // auto-created if missing (same as setRowTrips), so the move can't silently
+  // delete the old production_entries row and re-write it under the new keys (for
+  // THIS pit), carrying the same trip count. Material/dumping-area for the new keys
+  // are auto-created if missing (same as setRowTrips), so the move can't silently
   // fail just because that master row wasn't seeded.
-  if (shiftId && excavator && oldMaterialRow && oldDumpRow && oldTruckRow && nextTruckRow) {
+  if (shiftId && placementId && excavatorId && areaId && oldMaterialRow && oldDumpRow && oldTruckRow && nextTruckRow) {
     await supabase
       .from("production_entries")
       .delete()
       .eq("shift_id", shiftId)
       .eq("log_hour", selection.hour)
-      .eq("excavator_id", excavatorUid)
+      .eq("placement_id", placementId)
       .eq("material_id", oldMaterialRow.id)
       .eq("dumping_area_id", oldDumpRow.id)
       .eq("truck_model_id", oldTruckRow.id);
@@ -486,15 +589,16 @@ const updateEntryRow = async (excavatorUid, rowId, patch) => {
           {
             shift_id: shiftId,
             log_hour: selection.hour,
-            excavator_id: excavatorUid,
+            placement_id: placementId,
+            excavator_id: excavatorId,
             material_id: nextMaterialId,
             dumping_area_id: nextDumpId,
             truck_model_id: nextTruckRow.id,
-            mining_area_id: excavator.mining_area_id,
+            mining_area_id: areaId,
             trips,
             tonnes: trips * tonnesPerTripFor(nextModel),
           },
-          { onConflict: "shift_id,log_hour,excavator_id,material_id,dumping_area_id,truck_model_id" },
+          { onConflict: "shift_id,log_hour,placement_id,material_id,dumping_area_id,truck_model_id" },
         );
       }
     }
@@ -512,10 +616,20 @@ const updateEntryRow = async (excavatorUid, rowId, patch) => {
   }
 };
 
-const updateLocalTrip = (excavatorUid, rowId, value) => {
+const updateLocalTrip = (placementId, rowId, value) => {
   const key = currentKey.value;
+  const slot = placementId;
+  const placement = placementRow(placementId);
   const bucket = entriesByKey.value[key] || (entriesByKey.value[key] = {});
-  const entry = bucket[excavatorUid] || (bucket[excavatorUid] = { rows: [] });
+  const entry =
+    bucket[slot] ||
+    (bucket[slot] = {
+      placementId,
+      excavatorId: placement?.excavator_id,
+      areaId: placement?.mining_area_id,
+      area: areaCodeById.value[placement?.mining_area_id] ?? "",
+      rows: [],
+    });
   let row = entry.rows.find((item) => item.id === rowId);
   if (!row) {
     const [material, dump, model] = rowId.split("|");
@@ -531,20 +645,23 @@ const updateLocalTrip = (excavatorUid, rowId, value) => {
 // Returns true when the trip count was persisted (or cleared) in the database,
 // false when it could not be saved — e.g. the row has no valid material / dump
 // model / dumping area because that master data has not been entered yet.
-const setRowTrips = async (excavatorUid, rowId, rawValue) => {
+const setRowTrips = async (placementId, rowId, rawValue) => {
   // Never persist data for a slot that is still in the future.
   if (isFutureSlot(selection.date, selection.shiftType, selection.hour)) return false;
 
   const value = rawValue === "" ? 0 : Math.max(0, Number(rawValue) || 0);
-  const excavator = excavatorsStore.items.value.find((row) => row.id === excavatorUid);
-  if (!excavator) return false;
+  const placement = placementRow(placementId);
+  if (!placement) return false;
+  const excavatorId = placement.excavator_id;
+  const areaId = placement.mining_area_id;
+  const slot = placementId;
 
   const isDraft = rowId.startsWith("draft-");
   let materialCode;
   let dumpCode;
   let modelCode;
   if (isDraft) {
-    const draftRow = draftRowsByKey.value[currentKey.value]?.[excavatorUid]?.find((item) => item.id === rowId);
+    const draftRow = draftRowsByKey.value[currentKey.value]?.[slot]?.find((item) => item.id === rowId);
     if (!draftRow) return false;
     // Keep the input value live while the row is still a draft.
     draftRow.trips = value;
@@ -570,10 +687,12 @@ const setRowTrips = async (excavatorUid, rowId, rawValue) => {
   const dumpingAreaId = await getOrCreateDumpingAreaId(dumpCode);
   if (!dumpingAreaId) return false;
 
+  // Trips are unique per (shift, hour, PLACEMENT, material, dump area, truck model),
+  // so the same excavator can have separate rows in the same pit (one per placement).
   const matchKey = {
     shift_id: shiftId,
     log_hour: selection.hour,
-    excavator_id: excavatorUid,
+    placement_id: placementId,
     material_id: materialId,
     dumping_area_id: dumpingAreaId,
     truck_model_id: truck.id,
@@ -583,26 +702,26 @@ const setRowTrips = async (excavatorUid, rowId, rawValue) => {
     await supabase.from("production_entries").delete().match(matchKey);
     // Drop persisted rows that hit zero; leave fresh draft rows in place so the
     // user can keep editing them.
-    if (!isDraft) updateLocalTrip(excavatorUid, `${materialCode}|${dumpCode}|${modelCode}`, 0);
+    if (!isDraft) updateLocalTrip(placementId, `${materialCode}|${dumpCode}|${modelCode}`, 0);
     return true;
   }
 
   await supabase
     .from("production_entries")
     .upsert(
-      { ...matchKey, mining_area_id: excavator.mining_area_id, trips: value, tonnes: value * tonnesPerTripFor(modelCode) },
-      { onConflict: "shift_id,log_hour,excavator_id,material_id,dumping_area_id,truck_model_id" },
+      { ...matchKey, excavator_id: excavatorId, mining_area_id: areaId, trips: value, tonnes: value * tonnesPerTripFor(modelCode) },
+      { onConflict: "shift_id,log_hour,placement_id,material_id,dumping_area_id,truck_model_id" },
     );
 
   const compositeId = `${materialCode}|${dumpCode}|${modelCode}`;
   if (isDraft) {
     const key = currentKey.value;
     const drafts = { ...draftRowsByKey.value };
-    const list = (drafts[key]?.[excavatorUid] || []).filter((item) => item.id !== rowId);
-    drafts[key] = { ...(drafts[key] || {}), [excavatorUid]: list };
+    const list = (drafts[key]?.[slot] || []).filter((item) => item.id !== rowId);
+    drafts[key] = { ...(drafts[key] || {}), [slot]: list };
     draftRowsByKey.value = drafts;
   }
-  updateLocalTrip(excavatorUid, compositeId, value);
+  updateLocalTrip(placementId, compositeId, value);
   return true;
 };
 
@@ -616,6 +735,7 @@ export const useEntryStore = () => ({
   areas,
   dumpingAreaCodes,
   excavators,
+  areaExcavators,
   entries,
   totals,
   sumBucket,
@@ -624,7 +744,10 @@ export const useEntryStore = () => ({
   setTruckFactor,
   updateExcavator,
   removeExcavator,
-  removeExcavatorTripsForDate,
+  addAreaExcavator,
+  updateAreaExcavator,
+  removeAreaExcavatorPlacement,
+  removePlacementTripsForDate,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,

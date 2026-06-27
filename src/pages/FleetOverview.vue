@@ -33,7 +33,7 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, entries, totals, sumBucket, getBucket } = useEntryStore();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket } = useEntryStore();
 const { planTonnesForDate, planMaterialTotalsForDate } = usePlanProduction();
 const { areaTarget } = useAreaTargets();
 
@@ -59,13 +59,16 @@ const kpiCards = computed(() => [
 // and the "BCM by hour" chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
   excavators.value.map((excavator) => {
-    const entry = entries.value[excavator.uid];
     let waste = 0;
     let ore = 0;
-    (entry?.rows || []).forEach((row) => {
-      const total = rowTotal(row);
-      if (isWaste(row.material)) waste += total;
-      else ore += total;
+    // An excavator can be placed in several pits — sum every slot for this unit.
+    Object.values(entries.value).forEach((entry) => {
+      if (entry.excavatorId !== excavator.uid) return;
+      entry.rows.forEach((row) => {
+        const total = rowTotal(row);
+        if (isWaste(row.material)) waste += total;
+        else ore += total;
+      });
     });
     return {
       exc: excavator.name,
@@ -91,8 +94,8 @@ const excDayTotals = computed(() => {
   const byUid = {};
   ["Day", "Night"].forEach((shiftType) => {
     for (let hour = 0; hour < 24; hour += 1) {
-      Object.entries(getBucket(selection.date, shiftType, hour)).forEach(([uid, entry]) => {
-        const acc = byUid[uid] || (byUid[uid] = { waste: 0, ore: 0 });
+      Object.values(getBucket(selection.date, shiftType, hour)).forEach((entry) => {
+        const acc = byUid[entry.excavatorId] || (byUid[entry.excavatorId] = { waste: 0, ore: 0 });
         entry.rows.forEach((row) => {
           const total = rowTotal(row);
           if (isWaste(row.material)) acc.waste += total;
@@ -159,8 +162,10 @@ const setSort = (key) => {
 const productionRows = computed(() => [...excDayRows.value].sort((a, b) => b.trip - a.trip));
 
 const fleetStats = computed(() => {
-  const excavatorCount = excavators.value.length;
-  const trucks = excavators.value.reduce((sum, excavator) => sum + (Number(excavator.trucks) || 0), 0);
+  // Count distinct placed excavators and sum the per-pit truck fleets (placements).
+  const placements = areaExcavators.value;
+  const excavatorCount = new Set(placements.map((placement) => placement.uid)).size;
+  const trucks = placements.reduce((sum, placement) => sum + (Number(placement.trucks) || 0), 0);
   const ratio = excavatorCount > 0 ? (trucks / excavatorCount).toFixed(1) : "0.0";
   const tripInHour = excRows.value.reduce((sum, row) => sum + row.trip, 0);
   return { excavators: excavatorCount, trucks, ratio, tripInHour };
@@ -198,18 +203,18 @@ const planPct = computed(() => pct(totalAll.value, totalPlan.value));
 // Total Production KPI.
 const areasByShift = computed(() => {
   const byArea = new Map();
-  excavators.value.forEach((excavator) => {
-    // Skip excavators not assigned to any area (area is blank, e.g. after being
-    // removed from an area) so the chart never draws a nameless column.
-    if (!excavator.area) return;
-    if (!byArea.has(excavator.area)) byArea.set(excavator.area, { area: excavator.area, day: 0, night: 0, plan: areaTarget(excavator.area) });
+  // Seed a column per pit that has a placed excavator.
+  areaExcavators.value.forEach((placement) => {
+    if (!placement.area) return;
+    if (!byArea.has(placement.area)) byArea.set(placement.area, { area: placement.area, day: 0, night: 0, plan: areaTarget(placement.area) });
   });
   ["Day", "Night"].forEach((shiftType) => {
     for (let hour = 0; hour < 24; hour += 1) {
       const bucket = getBucket(selection.date, shiftType, hour);
-      Object.entries(bucket).forEach(([excavatorUid, entry]) => {
-        const excavator = excavators.value.find((item) => item.uid === excavatorUid);
-        const stat = excavator && byArea.get(excavator.area);
+      // Each entry carries its own pit (entry.area), so trips land in the pit they
+      // were logged for — the same excavator's trips split correctly across pits.
+      Object.values(bucket).forEach((entry) => {
+        const stat = byArea.get(entry.area);
         if (!stat) return;
         const tonnes = entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
         stat[shiftType === "Day" ? "day" : "night"] += tonnes;
@@ -352,17 +357,15 @@ const bcmBars = computed(() => {
 // Production by area - tonnes by shift type, for the selected date (live, mirrors areasByShift above).
 const areaTonnesByShift = computed(() => {
   const byArea = new Map();
-  excavators.value.forEach((excavator) => {
-    // Skip unassigned excavators (blank area) so no nameless column is drawn.
-    if (!excavator.area) return;
-    if (!byArea.has(excavator.area)) byArea.set(excavator.area, { area: excavator.area, day: 0, night: 0, target: areaTarget(excavator.area) });
+  areaExcavators.value.forEach((placement) => {
+    if (!placement.area) return;
+    if (!byArea.has(placement.area)) byArea.set(placement.area, { area: placement.area, day: 0, night: 0, target: areaTarget(placement.area) });
   });
   ["Day", "Night"].forEach((shiftType) => {
     for (let hour = 0; hour < 24; hour += 1) {
       const bucket = getBucket(selection.date, shiftType, hour);
-      Object.entries(bucket).forEach(([excavatorUid, entry]) => {
-        const excavator = excavators.value.find((item) => item.uid === excavatorUid);
-        const stat = excavator && byArea.get(excavator.area);
+      Object.values(bucket).forEach((entry) => {
+        const stat = byArea.get(entry.area);
         if (!stat) return;
         const tonnes = entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
         stat[shiftType === "Day" ? "day" : "night"] += tonnes;

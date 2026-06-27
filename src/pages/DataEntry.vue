@@ -23,18 +23,25 @@ const {
   areas: liveAreas,
   dumpingAreaCodes,
   excavators,
+  areaExcavators,
   entries,
   sumBucket,
   getBucket,
   truckModels,
-  updateExcavator,
-  removeExcavatorTripsForDate,
+  addAreaExcavator,
+  updateAreaExcavator,
+  removeAreaExcavatorPlacement,
+  removePlacementTripsForDate,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,
   setRowTrips,
   setTruckFactor,
 } = useEntryStore();
+
+// A Data entry row is one placement; its trips live under the slot key = its
+// placement id in `entries`.
+const slotKeyOf = (placement) => placement.placementId;
 
 const { getDatePlans, savePlan, removePlan } = usePlanProduction();
 
@@ -58,8 +65,8 @@ const enteredExcavatorCount = computed(() => {
   const used = new Set();
   ["Day", "Night"].forEach((shiftType) => {
     for (let hour = 0; hour < 24; hour += 1) {
-      Object.entries(getBucket(selection.date, shiftType, hour)).forEach(([uid, entry]) => {
-        if (activeUids.has(uid) && excTotal(entry) > 0) used.add(uid);
+      Object.entries(getBucket(selection.date, shiftType, hour)).forEach(([slot, entry]) => {
+        if (activeUids.has(entry.excavatorId) && excTotal(entry) > 0) used.add(slot);
       });
     }
   });
@@ -267,7 +274,7 @@ const drillHourOptions = computed(() => {
 const drifterHours = computed(() => Math.max(0, Number(drillLog.value.drifterEnd) - Number(drillLog.value.drifterStart)));
 
 const area = ref(areaTabs.value[0]);
-const openUid = ref(null);
+const openPlacementId = ref(null);
 const addingArea = ref(false);
 const selectedAddArea = ref("");
 const addAreaQuery = ref("");
@@ -275,34 +282,22 @@ const addAreaOpen = ref(false);
 
 const selectedArea = computed(() => (areaTabs.value.includes(area.value) ? area.value : areaTabs.value[0]));
 const selectedIndex = computed(() => Math.max(0, areaTabs.value.indexOf(selectedArea.value)));
-const detailRows = computed(() => excavators.value.filter((excavator) => excavator.area === selectedArea.value));
-const detailTrips = computed(() => detailRows.value.reduce((sum, excavator) => sum + excTotal(entries.value[excavator.uid]), 0));
+// Data entry rows = the excavator placements in the selected pit (one row per
+// placement). The same excavator can also be placed in other pits.
+const detailRows = computed(() => areaExcavators.value.filter((placement) => placement.area === selectedArea.value));
+const detailTrips = computed(() => detailRows.value.reduce((sum, placement) => sum + excTotal(entries.value[slotKeyOf(placement)]), 0));
 
-// True when an excavator has logged any trips for the selected date (either shift,
-// any hour) — i.e. it's already been used in data entry.
-const excavatorHasDateTrips = (uid) => {
-  for (const shiftType of ["Day", "Night"]) {
-    for (let hour = 0; hour < 24; hour += 1) {
-      const entry = getBucket(selection.date, shiftType, hour)[uid];
-      if (entry && excTotal(entry) > 0) return true;
-    }
-  }
-  return false;
-};
-
-// EXCAVATOR cell options: the row's own current code plus every AVAILABLE unit —
-// one that's idle (assigned to no area) AND has logged no trips for the date. A
-// unit therefore drops out of the picker as soon as it's placed in an area or
-// given trips, so you can't pick a unit that's already in use, and changing a row
-// never pulls a unit out of another area.
+// EXCAVATOR cell options: every registered unit. Duplicates are allowed now — the
+// same excavator can be placed in a pit more than once (each row keeps its own
+// trips via placement_id) and in multiple pits.
 const availableExcavatorCodes = computed(() =>
   excavators.value
-    .filter((excavator) => !excavator.area && !excavatorHasDateTrips(excavator.uid))
     .map((excavator) => excavator.name)
-    .filter(Boolean),
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b)),
 );
-const rowExcavatorOptions = (exc) =>
-  Array.from(new Set([exc.name, ...availableExcavatorCodes.value].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+const rowExcavatorOptions = (placement) =>
+  Array.from(new Set([placement.name, ...availableExcavatorCodes.value].filter(Boolean))).sort((a, b) => a.localeCompare(b));
 // Step 2 plan (soil/ore/total) for the area currently selected in Step 3.
 const selectedAreaPlan = computed(() => {
   const values = pitAmounts.value[selectedArea.value] ?? { soil: "", ore: "" };
@@ -312,8 +307,8 @@ const selectedAreaPlan = computed(() => {
     total: parseCommaNumber(values.soil) + parseCommaNumber(values.ore),
   };
 });
-const openExc = computed(() => (openUid.value ? excavators.value.find((excavator) => excavator.uid === openUid.value) : null));
-const openEntry = computed(() => (openExc.value ? entries.value[openExc.value.uid] : null));
+const openExc = computed(() => (openPlacementId.value ? areaExcavators.value.find((placement) => placement.placementId === openPlacementId.value) : null));
+const openEntry = computed(() => (openExc.value ? entries.value[slotKeyOf(openExc.value)] : null));
 
 const miningDataOptions = computed(() => [...miningAreas.value].sort((a, b) => a.localeCompare(b)));
 
@@ -336,14 +331,14 @@ watch(
 
 const areaCards = computed(() =>
   areaTabs.value.map((name) => {
-    const areaExcavators = excavators.value.filter((excavator) => excavator.area === name);
-    const trips = areaExcavators.reduce((sum, excavator) => sum + excTotal(entries.value[excavator.uid]), 0);
-    const worst = areaExcavators.some((excavator) => excavator.status === "alert")
+    const placements = areaExcavators.value.filter((placement) => placement.area === name);
+    const trips = placements.reduce((sum, placement) => sum + excTotal(entries.value[slotKeyOf(placement)]), 0);
+    const worst = placements.some((placement) => placement.status === "alert")
       ? "alert"
-      : areaExcavators.some((excavator) => excavator.status === "warn")
+      : placements.some((placement) => placement.status === "warn")
         ? "warn"
         : "ok";
-    return { name, excavators: areaExcavators, trips, worst };
+    return { name, excavators: placements, trips, worst };
   }),
 );
 
@@ -358,7 +353,7 @@ const summary = computed(() => {
     });
   });
   const activeAreas = areaTabs.value.filter((name) =>
-    excavators.value.some((excavator) => excavator.area === name && excTotal(entries.value[excavator.uid]) > 0),
+    Object.values(entries.value).some((entry) => entry.area === name && excTotal(entry) > 0),
   ).length;
 
   let priorTrips = 0;
@@ -418,76 +413,72 @@ const commitArea = () => {
   addingArea.value = false;
 };
 
-const setExc = (id, patch) => updateExcavator(id, patch);
+// Edit a placement's per-pit fields (trucks / RL / note) — stored on area_excavators
+// so they're independent per pit.
+const setExc = (placement, patch) => updateAreaExcavator(placement.placementId, patch);
 
-// Editing the EXCAVATOR cell relabels this row's unit IN PLACE: the row keeps its
-// area and the trips already entered, and ONLY the code changes — nothing is pulled
-// in or out of another area, and no trips move between records. Always editable
-// (no lock), can be changed repeatedly. Because excavators.code is unique and the
-// chosen code belongs to an idle record (only idle units are offered), we swap the
-// two codes via a throwaway temp code to dodge the unique clash: this row's record
-// takes the picked code, and the idle record that held it takes this row's old code
-// (and stays idle, so no area is ever touched).
-const pickExcavator = async (row, code) => {
-  if (!code || code === row.name) return;
-  const target = excavators.value.find((excavator) => excavator.name === code);
-  if (!target || target.uid === row.uid || target.area) return;
-  const oldCode = row.name;
-  const tempCode = `__swap_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  await updateExcavator(target.uid, { name: tempCode });
-  await updateExcavator(row.uid, { name: code });
-  await updateExcavator(target.uid, { name: oldCode });
+// True when this placement's slot has trips logged for the selected date.
+const placementHasDateTrips = (placement) => {
+  const slot = slotKeyOf(placement);
+  for (const shiftType of ["Day", "Night"]) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const entry = getBucket(selection.date, shiftType, hour)[slot];
+      if (entry && excTotal(entry) > 0) return true;
+    }
+  }
+  return false;
 };
 
-// Excavators are created on the Excavator master page; here you only place an
-// existing registered unit into the selected area (sets its mining_area_id). The
-// pool is the same AVAILABLE set as the row picker — idle units with no trips yet —
-// so adding one never pulls a unit out of another area or re-adds one already in use.
+// Change which excavator occupies this pit slot. Only THIS placement changes — the
+// pit and other pits are untouched, and the chosen unit may already be working in
+// another pit (that's allowed). Locked once the slot has trips (clear them with x
+// first), so entered data is never stranded on the old excavator.
+const pickExcavator = async (placement, code) => {
+  if (!code || code === placement.name) return;
+  if (placementHasDateTrips(placement)) return;
+  const target = excavators.value.find((excavator) => excavator.name === code);
+  if (!target || target.uid === placement.uid) return;
+  await updateAreaExcavator(placement.placementId, { excavatorId: target.uid });
+};
+
+// "+ Add excavator" places the first available unit (one not already in this pit)
+// into the selected pit as a fresh, blank row. The same unit can also sit in other
+// pits, so adding here never pulls it out of another pit.
 const assignableExcavators = computed(() => [...availableExcavatorCodes.value].sort((a, b) => a.localeCompare(b)));
-// "+ Add excavator" assigns the first available unit straight away — no picker
-// step. Swap it to a specific unit afterward via the row's dropdown. Start the row
-// completely fresh: wipe any trips the unit logged for the date and clear its
-// operational fields (trucks / RL / note), so every column is blank and ready to
-// fill in instead of carrying over whatever the unit had from a previous shift.
 const addExcavator = async () => {
   const code = assignableExcavators.value[0];
   if (!code) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
-  if (!target) return;
-  await removeExcavatorTripsForDate(target.uid, selection.date);
-  await updateExcavator(target.uid, { area: selectedArea.value, trucks: 0, rl: "", notes: "" });
+  if (target) await addAreaExcavator(selectedArea.value, target.uid);
 };
 
-// Remove this excavator from the selected area: clear its entered trips for the
-// date (both shifts) and unassign it (mining_area_id null) so the row drops out of
-// the list — the inverse of "+ Add excavator". The unit stays in the Excavator
-// master, free to assign again later.
-const deleteExc = async (id) => {
-  await removeExcavatorTripsForDate(id, selection.date);
-  await updateExcavator(id, { area: "" });
-  if (openUid.value === id) openUid.value = null;
+// Remove this placement from the pit: clear its trips for the date (this pit only)
+// and delete the placement row. Other pits keep the same excavator and its data.
+const deleteExc = async (placement) => {
+  await removePlacementTripsForDate(placement.placementId, selection.date);
+  await removeAreaExcavatorPlacement(placement.placementId);
+  if (openPlacementId.value === placement.placementId) openPlacementId.value = null;
 };
 
-// A row is "blank" — never used — when it has no trips for the date and no
-// operational data (trucks / RL / note). Used to stop "+ Add excavator" from
+// A placement is "blank" — never used — when its slot has no trips for the date and
+// no operational data (trucks / RL / note). Used to stop "+ Add excavator" from
 // piling up empty rows, and to clear them out in one go.
-const isBlankExcavator = (exc) =>
-  !excavatorHasDateTrips(exc.uid) && !Number(exc.trucks) && !Number(exc.rl) && !String(exc.notes || "").trim();
+const isBlankExcavator = (placement) =>
+  !placementHasDateTrips(placement) && !Number(placement.trucks) && !Number(placement.rl) && !String(placement.notes || "").trim();
 const emptyDetailRows = computed(() => detailRows.value.filter(isBlankExcavator));
 const hasUnusedRow = computed(() => emptyDetailRows.value.length > 0);
 
-// Unassign every blank row from the area at once (they hold no data, so they just
-// return to the idle pool and can be added again later).
+// Remove every blank placement from this pit at once (they hold no data).
 const clearEmptyExcavators = async () => {
-  for (const exc of [...emptyDetailRows.value]) {
-    await updateExcavator(exc.uid, { area: "" });
-    if (openUid.value === exc.uid) openUid.value = null;
+  for (const placement of [...emptyDetailRows.value]) {
+    await removeAreaExcavatorPlacement(placement.placementId);
+    if (openPlacementId.value === placement.placementId) openPlacementId.value = null;
   }
 };
 
 const setEntryRow = (row, patch) => {
   if (!openExc.value) return;
-  updateEntryRow(openExc.value.uid, row.id, patch);
+  updateEntryRow(openExc.value.placementId, row.id, patch);
 };
 
 // The trip-entry dropdowns are driven by the Material Routes master data:
@@ -542,13 +533,13 @@ const setRowOreType = (row, oreType) => {
 // A fresh row defaults its material type / ore type to the first material route
 // and its To location to the first available destination, so every dropdown shows
 // a valid value (and saves) without the user having to touch them.
-const defaultRouteFor = (uid) => {
+const defaultRouteFor = (placement) => {
   const first = materialRoutes.value[0];
   if (!first) return;
-  const rows = entries.value[uid]?.rows ?? [];
+  const rows = entries.value[slotKeyOf(placement)]?.rows ?? [];
   const newRow = rows[rows.length - 1];
   if (newRow) {
-    updateEntryRow(uid, newRow.id, {
+    updateEntryRow(placement.placementId, newRow.id, {
       material: first.oreType,
       dump: newRow.dump || locationOptions.value[0] || first.location || "",
     });
@@ -562,7 +553,7 @@ const setTrip = async (row, value) => {
   if (!openExc.value) return;
   tripSaveState.value = "saving";
   tripSaveMessage.value = "Saving to database…";
-  const ok = await setRowTrips(openExc.value.uid, row.id, value);
+  const ok = await setRowTrips(openExc.value.placementId, row.id, value);
   if (ok) {
     tripSaveState.value = "saved";
     tripSaveMessage.value = "Saved to database.";
@@ -579,25 +570,27 @@ const setFactor = (row, value) => setTruckFactor(row.model, value);
 
 const addModalRow = () => {
   if (!openExc.value) return;
-  addEntryRow(openExc.value.uid);
-  defaultRouteFor(openExc.value.uid);
+  addEntryRow(openExc.value.placementId);
+  defaultRouteFor(openExc.value);
 };
 
 const deleteModalRow = (id) => {
   if (!openExc.value || !openEntry.value || openEntry.value.rows.length <= 1) return;
-  removeEntryRow(openExc.value.uid, id);
+  removeEntryRow(openExc.value.placementId, id);
 };
 
 // Ensure the trip-entry modal always has at least one row to fill in, mirroring
 // the previous "ensure a default row exists" behaviour.
-watch(openUid, (id) => {
+watch(openPlacementId, (id) => {
   tripSaveState.value = "idle";
   tripSaveMessage.value = "";
   if (!id) return;
-  const entry = entries.value[id];
+  const placement = areaExcavators.value.find((item) => item.placementId === id);
+  if (!placement) return;
+  const entry = entries.value[slotKeyOf(placement)];
   if (!entry || entry.rows.length === 0) {
-    addEntryRow(id);
-    defaultRouteFor(id);
+    addEntryRow(placement.placementId);
+    defaultRouteFor(placement);
   }
 });
 
@@ -607,7 +600,7 @@ const onKeyDown = (event) => {
       addingArea.value = false;
       selectedAddArea.value = miningDataOptions.value[0] ?? "";
     } else {
-      openUid.value = null;
+      openPlacementId.value = null;
     }
   }
 };
@@ -840,8 +833,7 @@ onUnmounted(() => {
               <button
                 class="add-exc"
                 type="button"
-                :disabled="!selectedArea || assignableExcavators.length === 0 || hasUnusedRow"
-                :title="hasUnusedRow ? 'Fill in the empty row first (or clear it) before adding another' : ''"
+                :disabled="!selectedArea || assignableExcavators.length === 0"
                 @click="addExcavator"
               >
                 + Add excavator
@@ -860,14 +852,15 @@ onUnmounted(() => {
               <span class="exc-cell" />
             </div>
 
-            <div v-for="exc in detailRows" :key="exc.uid" class="exc-row">
+            <div v-for="exc in detailRows" :key="exc.placementId" class="exc-row">
               <div class="exc-cell exc-name">
                 <StatusDot :status="exc.status" />
                 <SearchSelect
                   :model-value="exc.name"
                   :options="rowExcavatorOptions(exc)"
+                  :disabled="placementHasDateTrips(exc)"
                   placeholder="Search excavator"
-                  empty-text="No idle excavator"
+                  empty-text="No excavator available"
                   @change="pickExcavator(exc, $event)"
                 />
               </div>
@@ -878,7 +871,7 @@ onUnmounted(() => {
                   min="0"
                   placeholder="0"
                   :value="exc.trucks === 0 ? '' : exc.trucks"
-                  @change="setExc(exc.uid, { trucks: $event.target.value })"
+                  @change="setExc(exc, { trucks: $event.target.value })"
                 />
               </div>
               <div class="exc-cell num">
@@ -887,7 +880,7 @@ onUnmounted(() => {
                   type="number"
                   min="0"
                   :value="exc.rl"
-                  @change="setExc(exc.uid, { rl: $event.target.value })"
+                  @change="setExc(exc, { rl: $event.target.value })"
                 />
               </div>
               <div class="exc-cell">
@@ -896,17 +889,17 @@ onUnmounted(() => {
                   type="text"
                   placeholder="Delay, ground, status..."
                   :value="exc.notes"
-                  @change="setExc(exc.uid, { notes: $event.target.value })"
+                  @change="setExc(exc, { notes: $event.target.value })"
                 />
               </div>
               <div class="exc-cell num">
-                <span class="exc-trip" :class="{ zero: excTotal(entries[exc.uid]) === 0 }">{{ excTotal(entries[exc.uid]) }}</span>
+                <span class="exc-trip" :class="{ zero: excTotal(entries[slotKeyOf(exc)]) === 0 }">{{ excTotal(entries[slotKeyOf(exc)]) }}</span>
               </div>
               <div class="exc-cell">
-                <button class="exc-enter-btn" type="button" @click="openUid = exc.uid">Enter trips ▸</button>
+                <button class="exc-enter-btn" type="button" @click="openPlacementId = exc.placementId">Enter trips ▸</button>
               </div>
               <div class="exc-cell">
-                <button class="gt-del" type="button" aria-label="Remove this excavator from the area" title="Remove this excavator from the area" @click="deleteExc(exc.uid)">x</button>
+                <button class="gt-del" type="button" aria-label="Remove this excavator from the pit" title="Remove this excavator from the pit" @click="deleteExc(exc)">x</button>
               </div>
             </div>
 
@@ -918,7 +911,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <div v-if="openExc && openEntry" class="modal-overlay" @mousedown.self="openUid = null">
+    <div v-if="openExc && openEntry" class="modal-overlay" @mousedown.self="openPlacementId = null">
       <div class="modal" role="dialog" aria-modal="true">
         <div class="modal-head">
           <div class="modal-title">
@@ -931,7 +924,7 @@ onUnmounted(() => {
               <b class="mono">{{ modalGrandTotal }}</b>
               <span>Trips this hour</span>
             </div>
-            <button class="modal-x" type="button" aria-label="Close" @click="openUid = null">x</button>
+            <button class="modal-x" type="button" aria-label="Close" @click="openPlacementId = null">x</button>
           </div>
         </div>
 
@@ -1028,7 +1021,7 @@ onUnmounted(() => {
           <span v-if="tripSaveMessage" class="foot-note entry-date-status" :class="tripSaveState">{{ tripSaveMessage }}</span>
           <span v-else class="foot-note">Entries save automatically.</span>
           <div class="foot-actions">
-            <button class="btn btn-primary" type="button" @click="openUid = null">Done</button>
+            <button class="btn btn-primary" type="button" @click="openPlacementId = null">Done</button>
           </div>
         </div>
       </div>

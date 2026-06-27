@@ -40,7 +40,7 @@ const PERIOD_LABELS = [
 ];
 
 const { selection } = useShiftSelection();
-const { areas, excavators, getBucket } = useEntryStore();
+const { areas, getBucket } = useEntryStore();
 const { areaTarget } = useAreaTargets();
 
 // Tonnes per area per calendar hour (0-23), summed across both shifts, for the
@@ -53,9 +53,9 @@ const hourlyAreaTonnes = computed(() => {
   ["Day", "Night"].forEach((shiftType) => {
     for (let hour = 0; hour < 24; hour += 1) {
       const bucket = getBucket(selection.date, shiftType, hour);
-      Object.entries(bucket).forEach(([excavatorUid, entry]) => {
-        const excavator = excavators.value.find((item) => item.uid === excavatorUid);
-        const tonnes = byArea.get(excavator?.area);
+      // Each entry carries its pit (entry.area), so trips land in the right pit.
+      Object.values(bucket).forEach((entry) => {
+        const tonnes = byArea.get(entry.area);
         if (!tonnes) return;
         tonnes[hour] += entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
       });
