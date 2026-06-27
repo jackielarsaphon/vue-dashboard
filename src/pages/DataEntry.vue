@@ -32,6 +32,8 @@ const {
   updateAreaExcavator,
   reassignPlacementExcavator,
   removeAreaExcavatorPlacement,
+  placementNoteFor,
+  setPlacementNote,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,
@@ -463,7 +465,7 @@ const deleteExc = async (placement) => {
 // no operational data (trucks / RL / note). Used to stop "+ Add excavator" from
 // piling up empty rows, and to clear them out in one go.
 const isBlankExcavator = (placement) =>
-  !placementHasDateTrips(placement) && !Number(placement.trucks) && !Number(placement.rl) && !String(placement.notes || "").trim();
+  !placementHasDateTrips(placement) && !Number(placement.trucks) && !Number(placement.rl) && !String(placementNoteFor(placement.placementId) || "").trim();
 const emptyDetailRows = computed(() => detailRows.value.filter(isBlankExcavator));
 const hasUnusedRow = computed(() => emptyDetailRows.value.length > 0);
 
@@ -578,8 +580,30 @@ const deleteModalRow = (id) => {
   removeEntryRow(openExc.value.placementId, id);
 };
 
-// Ensure the trip-entry modal always has at least one row to fill in, mirroring
-// the previous "ensure a default row exists" behaviour.
+// Carry the most recent EARLIER hour's rows (material / ore / location / dump model)
+// into a fresh hour as draft rows — but with Trips reset to 0, so the operator only
+// re-keys the trip counts. Returns true when something was carried.
+const HOUR_SEQUENCE = {
+  Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+  Night: [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
+};
+const carryForwardRows = (placement) => {
+  const order = HOUR_SEQUENCE[selection.shiftType] || [];
+  const idx = order.indexOf(selection.hour);
+  if (idx <= 0) return false;
+  const slot = slotKeyOf(placement);
+  for (let i = idx - 1; i >= 0; i -= 1) {
+    const prev = getBucket(selection.date, selection.shiftType, order[i])[slot];
+    if (prev && prev.rows.length > 0) {
+      prev.rows.forEach((row) => addEntryRow(placement.placementId, { material: row.material, dump: row.dump, model: row.model }));
+      return true;
+    }
+  }
+  return false;
+};
+
+// Ensure the trip-entry modal always has at least one row to fill in: carry the
+// previous hour's rows forward (trips reset), else seed one default row.
 watch(openPlacementId, (id) => {
   tripSaveState.value = "idle";
   tripSaveMessage.value = "";
@@ -588,8 +612,10 @@ watch(openPlacementId, (id) => {
   if (!placement) return;
   const entry = entries.value[slotKeyOf(placement)];
   if (!entry || entry.rows.length === 0) {
-    addEntryRow(placement.placementId);
-    defaultRouteFor(placement);
+    if (!carryForwardRows(placement)) {
+      addEntryRow(placement.placementId);
+      defaultRouteFor(placement);
+    }
   }
 });
 
@@ -886,8 +912,8 @@ onUnmounted(() => {
                   class="exc-note-input"
                   type="text"
                   placeholder="Delay, ground, status..."
-                  :value="exc.notes"
-                  @change="setExc(exc, { notes: $event.target.value })"
+                  :value="placementNoteFor(exc.placementId)"
+                  @change="setPlacementNote(exc.placementId, $event.target.value)"
                 />
               </div>
               <div class="exc-cell num">

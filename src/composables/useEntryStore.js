@@ -147,6 +147,9 @@ const shiftIdCache = ref({});
 const entriesByKey = ref({});
 // Locally-added rows with no trips yet (no DB identity), same keying.
 const draftRowsByKey = ref({});
+// Per-hour Production notes (public.placement_notes), keyed
+// "date_shiftType_hour" -> { [placementId]: note }.
+const notesByKey = ref({});
 
 const currentKey = computed(() => keyFor(selection.date, selection.shiftType, selection.hour));
 
@@ -307,8 +310,26 @@ const fetchDateEntries = async (date) => {
     }
   }
 
+  // Per-hour Production notes for the date.
+  const newNotes = {};
+  if (shiftIds.length) {
+    const { data: notes, error: notesError } = await supabase
+      .from("placement_notes")
+      .select("placement_id, shift_id, log_hour, note")
+      .in("shift_id", shiftIds);
+    if (!notesError && notes) {
+      notes.forEach((row) => {
+        const shiftType = shiftTypeById[row.shift_id];
+        if (!shiftType) return;
+        const key = keyFor(date, shiftType, row.log_hour);
+        (newNotes[key] = newNotes[key] || {})[row.placement_id] = row.note || "";
+      });
+    }
+  }
+
   entriesByKey.value = newEntries;
   draftRowsByKey.value = {};
+  notesByKey.value = newNotes;
 };
 
 watch(() => selection.date, (date) => fetchDateEntries(date), { immediate: true });
@@ -521,16 +542,19 @@ const removePlacementTripsForDate = async (placementId, date) => {
   dropFromStore(draftRowsByKey);
 };
 
-const addEntryRow = (placementId) => {
+// Add a draft trip row. An optional `template` (material/dump/model) seeds the
+// material+location+dump model — used to carry the previous hour's rows forward —
+// while trips always start at 0.
+const addEntryRow = (placementId, template) => {
   const key = currentKey.value;
   const slot = placementId;
   const drafts = { ...draftRowsByKey.value };
   const list = [...(drafts[key]?.[slot] || [])];
   list.push({
     id: draftUid(),
-    material: materialsStore.items.value[0]?.code ?? "",
-    dump: dumpingAreaCodes.value[0] ?? "",
-    model: truckModels.value[0]?.code ?? "",
+    material: template?.material ?? materialsStore.items.value[0]?.code ?? "",
+    dump: template?.dump ?? dumpingAreaCodes.value[0] ?? "",
+    model: template?.model ?? truckModels.value[0]?.code ?? "",
     trips: 0,
   });
   drafts[key] = { ...(drafts[key] || {}), [slot]: list };
@@ -769,6 +793,32 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
 // keep their own factor, so past dashboards stay unchanged.
 const setTruckFactor = (code, rawValue) => setWeekFactor(code, weekStartOf(selection.date), rawValue);
 
+// Per-hour Production note for a placement at the current (date, shift, hour). The
+// note is hour-scoped, so a new hour starts blank.
+const placementNoteFor = (placementId) => notesByKey.value[currentKey.value]?.[placementId] ?? "";
+const setPlacementNote = async (placementId, value) => {
+  const note = value ?? "";
+  const key = currentKey.value;
+  const next = { ...notesByKey.value };
+  next[key] = { ...(next[key] || {}), [placementId]: note };
+  notesByKey.value = next;
+  const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
+  if (!shiftId) return;
+  if (!note.trim()) {
+    await supabase
+      .from("placement_notes")
+      .delete()
+      .eq("placement_id", placementId)
+      .eq("shift_id", shiftId)
+      .eq("log_hour", selection.hour);
+    return;
+  }
+  await supabase.from("placement_notes").upsert(
+    { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, note },
+    { onConflict: "placement_id,shift_id,log_hour" },
+  );
+};
+
 export const useEntryStore = () => ({
   areas,
   dumpingAreaCodes,
@@ -786,6 +836,8 @@ export const useEntryStore = () => ({
   updateAreaExcavator,
   reassignPlacementExcavator,
   removeAreaExcavatorPlacement,
+  placementNoteFor,
+  setPlacementNote,
   removePlacementTripsForDate,
   addEntryRow,
   removeEntryRow,

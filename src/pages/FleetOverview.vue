@@ -33,7 +33,7 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket } = useEntryStore();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor } = useEntryStore();
 const { planTonnesForDate, planMaterialTotalsForDate } = usePlanProduction();
 const { areaTarget } = useAreaTargets();
 
@@ -73,7 +73,7 @@ const placementInfoFor = (uid) => {
       .sort((a, b) => a.localeCompare(b))
       .join(", "),
     trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
-    note: placements.map((p) => (p.notes || "").trim()).filter(Boolean)[0] || "",
+    note: placements.map((p) => (placementNoteFor(p.placementId) || "").trim()).filter(Boolean)[0] || "",
     status: placements[0]?.status,
   };
 };
@@ -564,10 +564,40 @@ const areaBars = computed(() => {
             <g v-for="bar in hourlyBars" :key="bar.t" :class="{ current: bar.isCurrent }">
               <rect :x="bar.x" :y="bar.baseY - bar.softH" :width="bar.bw" :height="bar.softH" fill="#8a5a2b" :opacity="bar.isCurrent ? 1 : 0.88" />
               <rect :x="bar.x" :y="bar.baseY - bar.softH - bar.oreH" :width="bar.bw" :height="bar.oreH" fill="var(--ore)" />
-              <text v-if="!bar.future" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH - bar.oreH - 4" class="bar-label mono" text-anchor="middle">{{ bar.total }}</text>
-              <!-- Per-segment values: Waste (brown) and ORE (gold) shown separately -->
-              <text v-if="bar.softH > 14" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH / 2 + 4" class="seg-label mono on-day" text-anchor="middle">{{ bar.soft }}</text>
-              <text v-if="bar.oreH > 14" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH - bar.oreH / 2 + 4" class="seg-label mono" text-anchor="middle">{{ bar.ore }}</text>
+              <!-- ดิน (Waste) and แร่ (ORE) shown as SEPARATE numbers — not a combined
+                   total: Waste inside its (usually larger) brown segment, and ORE in
+                   gold just above the bar so a small ore count is never hidden. -->
+              <!-- ดิน (Waste) inside its brown segment -->
+              <text
+                v-if="bar.soft > 0 && bar.softH > 12"
+                :x="bar.x + bar.bw / 2"
+                :y="bar.baseY - bar.softH / 2 + 4"
+                class="seg-label mono on-day"
+                text-anchor="middle"
+              >
+                {{ bar.soft }}
+              </text>
+              <!-- แร่ (ORE) inside the gold segment when it's tall enough … -->
+              <text
+                v-if="bar.ore > 0 && bar.oreH > 12"
+                :x="bar.x + bar.bw / 2"
+                :y="bar.baseY - bar.softH - bar.oreH / 2 + 4"
+                class="seg-label mono"
+                text-anchor="middle"
+              >
+                {{ bar.ore }}
+              </text>
+              <!-- … otherwise just above the bar in gold so a small ore count still shows -->
+              <text
+                v-else-if="bar.ore > 0 && !bar.future"
+                :x="bar.x + bar.bw / 2"
+                :y="bar.baseY - bar.softH - bar.oreH - 4"
+                class="seg-label mono"
+                :style="{ fill: 'var(--ore)' }"
+                text-anchor="middle"
+              >
+                {{ bar.ore }}
+              </text>
               <text :x="bar.x + bar.bw / 2" :y="hourlyChart.H - 18" class="axis mono tiny" text-anchor="middle">{{ bar.label }}</text>
               <rect
                 v-if="bar.isCurrent"
