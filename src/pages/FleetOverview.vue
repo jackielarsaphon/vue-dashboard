@@ -303,7 +303,11 @@ const hourlySeries = computed(() => {
   });
   return HOUR_ORDER.map((hour) => {
     const v = byHour[hour] ?? { soft: 0, ore: 0 };
-    return { t: String(hour).padStart(2, "0"), soft: v.soft, ore: v.ore, isCurrent: hour === selection.hour, future: byHour[hour] === null };
+    const hh = String(hour).padStart(2, "0");
+    const next = String((hour + 1) % 24).padStart(2, "0");
+    // Axis label is the hour SLOT range (e.g. 06-07) so it reads as the period the
+    // trips fall in, not a single instant; `t` stays the bare hour for the key.
+    return { t: hh, label: `${hh}-${next}`, soft: v.soft, ore: v.ore, isCurrent: hour === selection.hour, future: byHour[hour] === null };
   });
 });
 const hourlyMax = computed(() => {
@@ -523,7 +527,7 @@ const areaBars = computed(() => {
               <!-- Per-segment values: Waste (brown) and ORE (gold) shown separately -->
               <text v-if="bar.softH > 14" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH / 2 + 4" class="seg-label mono on-day" text-anchor="middle">{{ bar.soft }}</text>
               <text v-if="bar.oreH > 14" :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.softH - bar.oreH / 2 + 4" class="seg-label mono" text-anchor="middle">{{ bar.ore }}</text>
-              <text :x="bar.x + bar.bw / 2" :y="hourlyChart.H - 18" class="axis mono" text-anchor="middle">{{ bar.t }}</text>
+              <text :x="bar.x + bar.bw / 2" :y="hourlyChart.H - 18" class="axis mono tiny" text-anchor="middle">{{ bar.label }}</text>
               <rect
                 v-if="bar.isCurrent"
                 :x="bar.x - 3"
