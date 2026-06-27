@@ -425,31 +425,28 @@ const pickExcavator = async (row, code) => {
 // Excavators are created on the Excavator master page; here you only place an
 // existing registered unit into the selected area (sets its mining_area_id). The
 // pool is every active excavator not already in this area.
-const addingExcavator = ref(false);
-const excavatorToAdd = ref("");
 const assignableExcavators = computed(() =>
   excavators.value
     .filter((excavator) => excavator.area !== selectedArea.value)
     .map((excavator) => excavator.name)
     .sort((a, b) => a.localeCompare(b)),
 );
-const startAddExcavator = () => {
-  excavatorToAdd.value = assignableExcavators.value[0] ?? "";
-  addingExcavator.value = true;
-};
-const commitAddExcavator = async () => {
-  const code = excavatorToAdd.value;
+// "+ Add excavator" assigns the first available unit straight away — no picker
+// step. Swap it to a specific unit afterward via the row's dropdown.
+const addExcavator = async () => {
+  const code = assignableExcavators.value[0];
   if (!code) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
   if (target) await updateExcavator(target.uid, { area: selectedArea.value });
-  addingExcavator.value = false;
 };
 
-// Remove this excavator's entered trips for the whole selected date (both shifts),
-// keeping the unit in the Excavator master/dropdown. Clears the data and drops it
-// from the entered-units tally without deleting the master record.
-const deleteExc = (id) => {
-  removeExcavatorTripsForDate(id, selection.date);
+// Remove this excavator from the selected area: clear its entered trips for the
+// date (both shifts) and unassign it (mining_area_id null) so the row drops out of
+// the list — the inverse of "+ Add excavator". The unit stays in the Excavator
+// master, free to assign again later.
+const deleteExc = async (id) => {
+  await removeExcavatorTripsForDate(id, selection.date);
+  await updateExcavator(id, { area: "" });
   if (openUid.value === id) openUid.value = null;
 };
 
@@ -795,15 +792,7 @@ onUnmounted(() => {
         <section class="exc-panel">
           <div class="area-side-head">
             <h2>Excavators - {{ detailRows.length }} units</h2>
-            <div v-if="addingExcavator" style="display: flex; gap: 8px; align-items: center">
-              <select v-model="excavatorToAdd" class="exc-name-input exc-name-select" :disabled="assignableExcavators.length === 0">
-                <option v-if="assignableExcavators.length === 0" value="">No registered excavators</option>
-                <option v-for="code in assignableExcavators" :key="code" :value="code">{{ code }}</option>
-              </select>
-              <button class="area-add-ok" type="button" :disabled="!excavatorToAdd" @click="commitAddExcavator">OK</button>
-              <button class="btn" type="button" @click="addingExcavator = false">Cancel</button>
-            </div>
-            <button v-else class="add-exc" type="button" :disabled="!selectedArea" @click="startAddExcavator">+ Add excavator</button>
+            <button class="add-exc" type="button" :disabled="!selectedArea || assignableExcavators.length === 0" @click="addExcavator">+ Add excavator</button>
           </div>
 
           <div class="exc-list">
@@ -862,7 +851,7 @@ onUnmounted(() => {
                 <button class="exc-enter-btn" type="button" @click="openUid = exc.uid">Enter trips ▸</button>
               </div>
               <div class="exc-cell">
-                <button class="gt-del" type="button" aria-label="Clear this excavator's trips for the day" title="Clear this excavator's trips for the day" @click="deleteExc(exc.uid)">x</button>
+                <button class="gt-del" type="button" aria-label="Remove this excavator from the area" title="Remove this excavator from the area" @click="deleteExc(exc.uid)">x</button>
               </div>
             </div>
 
