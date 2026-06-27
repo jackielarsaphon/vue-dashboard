@@ -454,6 +454,25 @@ const updateAreaExcavator = async (placementId, patch) => {
   await areaExcavatorsStore.update(placementId, dbPatch);
 };
 
+// Change which excavator a row (placement) is, KEEPING its trips: the slot is the
+// placement, so the trips stay put, and we also re-stamp every production_entries
+// row's excavator_id so dashboards (which group by excavator) stay correct. Always
+// allowed — no lock — so a row can be re-labelled even after trips are entered.
+const reassignPlacementExcavator = async (placementId, newExcavatorId) => {
+  await areaExcavatorsStore.update(placementId, { excavator_id: newExcavatorId });
+  await supabase.from("production_entries").update({ excavator_id: newExcavatorId }).eq("placement_id", placementId);
+  // Keep the local cache in sync: each cached entry under this slot carries the
+  // excavatorId used by the dashboards.
+  const next = { ...entriesByKey.value };
+  Object.keys(next).forEach((key) => {
+    const bucket = next[key];
+    if (bucket && bucket[placementId]) {
+      next[key] = { ...bucket, [placementId]: { ...bucket[placementId], excavatorId: newExcavatorId } };
+    }
+  });
+  entriesByKey.value = next;
+};
+
 // Delete ALL of a placement's logged trips (every date/shift/hour) from the
 // database, then remove the placement row itself — so removing a row from a pit
 // leaves nothing orphaned behind in production_entries.
@@ -765,6 +784,7 @@ export const useEntryStore = () => ({
   removeExcavator,
   addAreaExcavator,
   updateAreaExcavator,
+  reassignPlacementExcavator,
   removeAreaExcavatorPlacement,
   removePlacementTripsForDate,
   addEntryRow,

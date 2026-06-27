@@ -30,6 +30,7 @@ const {
   truckModels,
   addAreaExcavator,
   updateAreaExcavator,
+  reassignPlacementExcavator,
   removeAreaExcavatorPlacement,
   addEntryRow,
   removeEntryRow,
@@ -428,16 +429,15 @@ const placementHasDateTrips = (placement) => {
   return false;
 };
 
-// Change which excavator occupies this pit slot. Only THIS placement changes — the
-// pit and other pits are untouched, and the chosen unit may already be working in
-// another pit (that's allowed). Locked once the slot has trips (clear them with x
-// first), so entered data is never stranded on the old excavator.
+// Change which excavator occupies this pit slot — ALWAYS editable, even after trips
+// are entered. Only THIS row changes; its trips stay with the row and follow to the
+// chosen unit (reassignPlacementExcavator re-stamps production_entries.excavator_id).
+// Other pits/rows are untouched, and the chosen unit may already be working elsewhere.
 const pickExcavator = async (placement, code) => {
   if (!code || code === placement.name) return;
-  if (placementHasDateTrips(placement)) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
   if (!target || target.uid === placement.uid) return;
-  await updateAreaExcavator(placement.placementId, { excavatorId: target.uid });
+  await reassignPlacementExcavator(placement.placementId, target.uid);
 };
 
 // "+ Add excavator" places the first available unit (one not already in this pit)
@@ -857,7 +857,6 @@ onUnmounted(() => {
                 <SearchSelect
                   :model-value="exc.name"
                   :options="rowExcavatorOptions(exc)"
-                  :disabled="placementHasDateTrips(exc)"
                   placeholder="Search excavator"
                   empty-text="No excavator available"
                   @change="pickExcavator(exc, $event)"

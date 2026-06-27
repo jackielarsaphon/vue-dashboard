@@ -55,6 +55,29 @@ const kpiCards = computed(() => [
   { label: "Total ORE", k: { ...totals.value.ore, target: kpiTargets.value.ore }, accent: "var(--ore)", kind: "ore" },
 ]);
 
+// Live per-pit placements grouped by excavator. The Excavator detail table reads
+// Area / Trucks / Note from here — the legacy excavators.mining_area_id / truck_count
+// are no longer maintained (Data entry now writes to area_excavators), so reading
+// them showed a blank Area and a stale truck count.
+const placementsByExcavator = computed(() => {
+  const map = {};
+  areaExcavators.value.forEach((placement) => {
+    (map[placement.uid] = map[placement.uid] || []).push(placement);
+  });
+  return map;
+});
+const placementInfoFor = (uid) => {
+  const placements = placementsByExcavator.value[uid] || [];
+  return {
+    area: Array.from(new Set(placements.map((p) => p.area).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b))
+      .join(", "),
+    trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
+    note: placements.map((p) => (p.notes || "").trim()).filter(Boolean)[0] || "",
+    status: placements[0]?.status,
+  };
+};
+
 // Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
 // and the "BCM by hour" chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
@@ -70,12 +93,13 @@ const excRows = computed(() =>
         else ore += total;
       });
     });
+    const info = placementInfoFor(excavator.uid);
     return {
       exc: excavator.name,
-      trucks: excavator.trucks,
-      area: excavator.area,
-      status: excavator.status,
-      remark: (excavator.notes || "").trim() || STATUS_REMARK[excavator.status] || "Normal",
+      trucks: info.trucks,
+      area: info.area,
+      status: info.status || excavator.status,
+      remark: info.note || STATUS_REMARK[info.status || excavator.status] || "Normal",
       trip: waste + ore,
       oreTrip: ore,
       wasteTrip: waste,
@@ -111,12 +135,13 @@ const excDayRows = computed(() =>
   excavators.value
     .map((excavator) => {
       const { waste = 0, ore = 0 } = excDayTotals.value[excavator.uid] || {};
+      const info = placementInfoFor(excavator.uid);
       return {
         exc: excavator.name,
-        trucks: excavator.trucks,
-        area: excavator.area,
-        status: excavator.status,
-        remark: (excavator.notes || "").trim() || STATUS_REMARK[excavator.status] || "Normal",
+        trucks: info.trucks,
+        area: info.area,
+        status: info.status || excavator.status,
+        remark: info.note || STATUS_REMARK[info.status || excavator.status] || "Normal",
         trip: waste + ore,
         oreTrip: ore,
         wasteTrip: waste,

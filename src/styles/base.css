@@ -644,17 +644,20 @@ table.data tfoot td {
 
 @media (max-width: 1180px) {
   .topbar { flex-wrap: wrap; }
-  .topbar-meta { margin-left: auto; }
+  .topbar-meta { margin-left: auto; flex-wrap: wrap; row-gap: 8px; }
+  /* Let the nav buttons and meta items wrap to new rows instead of overflowing
+     horizontally — the TopBar is shared by every page (Fleet, Data entry, …). */
+  .topnav { flex-wrap: wrap; }
   .grid { grid-template-columns: 1fr; }
   .col-main, .col-side { grid-column: 1; grid-row: auto; }
   .kpi-strip { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 760px) {
-  .dash { padding: 8px; }
-  .topbar-meta { width: 100%; justify-content: space-between; gap: 8px; }
+  .dash, .entry-dash { padding: 8px; }
+  .topbar-meta { width: 100%; justify-content: flex-start; gap: 10px 14px; }
   .topnav { width: 100%; }
-  .topnav button { flex: 1; padding-inline: 6px; }
+  .topnav button { flex: 1 1 auto; min-width: 0; padding-inline: 8px; }
   .kpi-strip { grid-template-columns: 1fr; }
 }
 

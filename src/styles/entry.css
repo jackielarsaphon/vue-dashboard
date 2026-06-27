@@ -1074,7 +1074,10 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
 
 @media (max-width: 980px) {
   .entry-plan-top { grid-template-columns: 1fr; }
-  .entry-stepper { grid-template-columns: 1fr; gap: 10px; }
+  /* Match the .entry-stepper.entry-stepper-2 base rule's specificity so the steps
+     actually stack (otherwise the 190px+170px columns overflow narrow screens). */
+  .entry-stepper,
+  .entry-stepper.entry-stepper-2 { grid-template-columns: 1fr; gap: 10px; }
   .entry-step-line { width: 2px; height: 20px; justify-self: 20px; }
   .entry-save-plan { justify-self: stretch; }
   .entry-header-form { grid-template-columns: 1fr; }
