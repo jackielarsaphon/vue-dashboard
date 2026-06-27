@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 // A searchable single-select (combobox) styled to match the trip-grid `.gt-sel`
 // dropdowns. Shows the current value in a text field; focusing opens the full
@@ -17,7 +17,40 @@ const open = ref(false);
 const typed = ref(false);
 const query = ref(String(props.modelValue ?? ""));
 const inputEl = ref(null);
+const menuStyle = ref({});
 let closeTimer = 0;
+
+// The list is position:fixed and anchored to the input's on-screen box, so it
+// floats above the page and is never clipped by a scrolling ancestor (the
+// trip modal and the excavator row both live inside overflow:auto containers).
+const positionMenu = () => {
+  const el = inputEl.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  menuStyle.value = { top: `${rect.bottom + 4}px`, left: `${rect.left}px`, width: `${rect.width}px` };
+};
+const reposition = () => {
+  if (open.value) positionMenu();
+};
+
+// Keep the floating list glued to the input while open (page/container scroll,
+// window resize) and drop the listeners when it closes.
+watch(open, (isOpen) => {
+  if (typeof window === "undefined") return;
+  if (isOpen) {
+    positionMenu();
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+  } else {
+    window.removeEventListener("scroll", reposition, true);
+    window.removeEventListener("resize", reposition);
+  }
+});
+onBeforeUnmount(() => {
+  if (typeof window === "undefined") return;
+  window.removeEventListener("scroll", reposition, true);
+  window.removeEventListener("resize", reposition);
+});
 
 // Mirror external changes into the field while the menu is closed, but never
 // clobber what the user is mid-typing.
@@ -36,8 +69,12 @@ const filtered = computed(() => {
 });
 
 const openMenu = (event) => {
-  open.value = true;
+  // Always surface the current value when focusing (and select it so typing
+  // replaces it), so the field never looks empty over a real selection.
+  query.value = String(props.modelValue ?? "");
   typed.value = false;
+  open.value = true;
+  positionMenu();
   event?.target?.select?.();
 };
 
@@ -92,7 +129,7 @@ const onBlur = () => {
       @keydown.esc="open = false"
     />
     <span class="ss-caret" aria-hidden="true">▾</span>
-    <div v-if="open" class="ss-list">
+    <div v-if="open" class="ss-list" :style="menuStyle">
       <button
         v-for="option in filtered"
         :key="option"
@@ -139,14 +176,15 @@ const onBlur = () => {
   pointer-events: none;
 }
 .ss-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 40;
-  max-height: 200px;
+  position: fixed;
+  z-index: 1000;
+  max-height: 240px;
   overflow-y: auto;
-  background: var(--panel-2);
+  /* Solid panel background + explicit ink colour so the options always read with
+     full contrast (white-on-dark or dark-on-white) regardless of theme, instead
+     of the lower-contrast cream pairing. */
+  background: var(--panel);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
@@ -161,15 +199,22 @@ const onBlur = () => {
   padding: 7px 9px;
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* The list is a flex column; without this, a long option list overflows the
+     max-height and flexbox squashes each row (clipping the text to a sliver)
+     instead of scrolling. Keep every row at its natural height and let the list
+     scroll. */
+  flex-shrink: 0;
 }
-.ss-option:hover {
-  background: var(--panel-3, rgba(255, 255, 255, 0.06));
+.ss-option:hover,
+.ss-option:focus {
+  background: var(--chip, rgba(0, 0, 0, 0.06));
 }
 .ss-option.on {
   color: var(--accent);

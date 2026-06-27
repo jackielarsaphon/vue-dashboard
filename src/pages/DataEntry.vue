@@ -815,13 +815,13 @@ onUnmounted(() => {
             <div v-for="exc in detailRows" :key="exc.uid" class="exc-row">
               <div class="exc-cell exc-name">
                 <StatusDot :status="exc.status" />
-                <select
-                  class="exc-name-input exc-name-select"
-                  :value="exc.name"
-                  @change="pickExcavator(exc, $event.target.value)"
-                >
-                  <option v-for="code in rowExcavatorOptions(exc)" :key="code" :value="code">{{ code }}</option>
-                </select>
+                <SearchSelect
+                  :model-value="exc.name"
+                  :options="rowExcavatorOptions(exc)"
+                  placeholder="Search excavator"
+                  empty-text="No excavator available"
+                  @change="pickExcavator(exc, $event)"
+                />
               </div>
               <div class="exc-cell num">
                 <input
