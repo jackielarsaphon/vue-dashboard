@@ -109,52 +109,9 @@ const excRows = computed(() =>
   }),
 );
 
-// Per-excavator WASTE/ORE trips for the WHOLE selected date — both shifts, every
-// hour — built only from trips actually entered in Data entry
-// (public.production_entries). The Excavator detail table and the Production by
-// excavator chart use this, so only excavators that logged trips that day show up
-// (idle units from the master roster are left out).
-const excDayTotals = computed(() => {
-  const byUid = {};
-  ["Day", "Night"].forEach((shiftType) => {
-    for (let hour = 0; hour < 24; hour += 1) {
-      Object.values(getBucket(selection.date, shiftType, hour)).forEach((entry) => {
-        const acc = byUid[entry.excavatorId] || (byUid[entry.excavatorId] = { waste: 0, ore: 0 });
-        entry.rows.forEach((row) => {
-          const total = rowTotal(row);
-          if (isWaste(row.material)) acc.waste += total;
-          else acc.ore += total;
-        });
-      });
-    }
-  });
-  return byUid;
-});
-
-const excDayRows = computed(() =>
-  excavators.value
-    .map((excavator) => {
-      const { waste = 0, ore = 0 } = excDayTotals.value[excavator.uid] || {};
-      const info = placementInfoFor(excavator.uid);
-      return {
-        exc: excavator.name,
-        trucks: info.trucks,
-        area: info.area,
-        status: info.status || excavator.status,
-        remark: info.note || STATUS_REMARK[info.status || excavator.status] || "Normal",
-        trip: waste + ore,
-        oreTrip: ore,
-        wasteTrip: waste,
-        waste: waste * BCM_PER_TRIP,
-        ore: ore * BCM_PER_TRIP,
-      };
-    })
-    .filter((row) => row.trip > 0),
-);
-
-// Excavator detail is scoped to the SELECTED hour (the HOUR box): it shows what each
-// excavator did in that hour, not the whole day. (The Production by excavator chart
-// below still uses the full-day totals.)
+// Both the Excavator detail table and the Production by excavator chart are scoped
+// to the SELECTED hour (the HOUR box): they show what each excavator did in that
+// hour, built from excRows (only units that logged trips that hour appear).
 const excHourRows = computed(() => excRows.value.filter((row) => row.trip > 0));
 
 const sortKey = ref("exc");
@@ -189,7 +146,8 @@ const setSort = (key) => {
   }
 };
 
-const productionRows = computed(() => [...excDayRows.value].sort((a, b) => b.trip - a.trip));
+// Production by excavator — scoped to the SELECTED hour too (matches Excavator detail).
+const productionRows = computed(() => [...excHourRows.value].sort((a, b) => b.trip - a.trip));
 
 const fleetStats = computed(() => {
   // Count distinct placed excavators and sum the per-pit truck fleets (placements).
