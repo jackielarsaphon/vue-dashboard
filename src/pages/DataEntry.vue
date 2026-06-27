@@ -468,6 +468,23 @@ const deleteExc = async (id) => {
   if (openUid.value === id) openUid.value = null;
 };
 
+// A row is "blank" — never used — when it has no trips for the date and no
+// operational data (trucks / RL / note). Used to stop "+ Add excavator" from
+// piling up empty rows, and to clear them out in one go.
+const isBlankExcavator = (exc) =>
+  !excavatorHasDateTrips(exc.uid) && !Number(exc.trucks) && !Number(exc.rl) && !String(exc.notes || "").trim();
+const emptyDetailRows = computed(() => detailRows.value.filter(isBlankExcavator));
+const hasUnusedRow = computed(() => emptyDetailRows.value.length > 0);
+
+// Unassign every blank row from the area at once (they hold no data, so they just
+// return to the idle pool and can be added again later).
+const clearEmptyExcavators = async () => {
+  for (const exc of [...emptyDetailRows.value]) {
+    await updateExcavator(exc.uid, { area: "" });
+    if (openUid.value === exc.uid) openUid.value = null;
+  }
+};
+
 const setEntryRow = (row, patch) => {
   if (!openExc.value) return;
   updateEntryRow(openExc.value.uid, row.id, patch);
@@ -810,7 +827,26 @@ onUnmounted(() => {
         <section class="exc-panel">
           <div class="area-side-head">
             <h2>Excavators - {{ detailRows.length }} units</h2>
-            <button class="add-exc" type="button" :disabled="!selectedArea || assignableExcavators.length === 0" @click="addExcavator">+ Add excavator</button>
+            <div style="display: flex; gap: 8px; align-items: center">
+              <button
+                v-if="hasUnusedRow"
+                class="btn"
+                type="button"
+                :title="`Remove ${emptyDetailRows.length} empty excavator(s) from this area`"
+                @click="clearEmptyExcavators"
+              >
+                x Clear empty ({{ emptyDetailRows.length }})
+              </button>
+              <button
+                class="add-exc"
+                type="button"
+                :disabled="!selectedArea || assignableExcavators.length === 0 || hasUnusedRow"
+                :title="hasUnusedRow ? 'Fill in the empty row first (or clear it) before adding another' : ''"
+                @click="addExcavator"
+              >
+                + Add excavator
+              </button>
+            </div>
           </div>
 
           <div class="exc-list">
