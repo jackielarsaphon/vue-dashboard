@@ -523,7 +523,9 @@ const updateLocalTrip = (excavatorUid, rowId, value) => {
     entry.rows.push(row);
   }
   row.trips = value;
-  if (!value) entry.rows = entry.rows.filter((item) => item.id !== rowId);
+  // Keep the row even when trips hit 0: clearing the field (e.g. to retype a
+  // number) deletes the DB entry in setRowTrips but the row stays visible and
+  // editable instead of vanishing. Remove a row deliberately via its x button.
 };
 
 // Returns true when the trip count was persisted (or cleared) in the database,
