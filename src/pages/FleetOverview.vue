@@ -293,9 +293,11 @@ const slotStart = (date, shiftType, hour) => {
 };
 const hourlySeries = computed(() => {
   const byHour = {};
-  // Hours chronologically after the selected (Current) slot haven't happened yet,
-  // so leave them empty instead of drawing a 0 bar.
-  const cutoff = slotStart(selection.date, selection.shiftType, selection.hour).getTime();
+  // Only hours still in the future (vs the real wall clock) stay empty. Gate on
+  // the actual clock — NOT the selected hour — so picking an earlier hour to view
+  // or edit never hides trips already logged for later, already-elapsed hours, and
+  // viewing a past date keeps showing every one of its hours.
+  const cutoff = Date.now();
   [
     { type: "Day", order: DAY_HOURS },
     { type: "Night", order: NIGHT_HOURS },
