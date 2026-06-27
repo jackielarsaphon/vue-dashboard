@@ -199,6 +199,9 @@ const planPct = computed(() => pct(totalAll.value, totalPlan.value));
 const areasByShift = computed(() => {
   const byArea = new Map();
   excavators.value.forEach((excavator) => {
+    // Skip excavators not assigned to any area (area is blank, e.g. after being
+    // removed from an area) so the chart never draws a nameless column.
+    if (!excavator.area) return;
     if (!byArea.has(excavator.area)) byArea.set(excavator.area, { area: excavator.area, day: 0, night: 0, plan: areaTarget(excavator.area) });
   });
   ["Day", "Night"].forEach((shiftType) => {
@@ -348,6 +351,8 @@ const bcmBars = computed(() => {
 const areaTonnesByShift = computed(() => {
   const byArea = new Map();
   excavators.value.forEach((excavator) => {
+    // Skip unassigned excavators (blank area) so no nameless column is drawn.
+    if (!excavator.area) return;
     if (!byArea.has(excavator.area)) byArea.set(excavator.area, { area: excavator.area, day: 0, night: 0, target: areaTarget(excavator.area) });
   });
   ["Day", "Night"].forEach((shiftType) => {
