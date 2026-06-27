@@ -432,12 +432,17 @@ const assignableExcavators = computed(() =>
     .sort((a, b) => a.localeCompare(b)),
 );
 // "+ Add excavator" assigns the first available unit straight away — no picker
-// step. Swap it to a specific unit afterward via the row's dropdown.
+// step. Swap it to a specific unit afterward via the row's dropdown. Start the row
+// completely fresh: wipe any trips the unit logged for the date and clear its
+// operational fields (trucks / RL / note), so every column is blank and ready to
+// fill in instead of carrying over whatever the unit had from a previous shift.
 const addExcavator = async () => {
   const code = assignableExcavators.value[0];
   if (!code) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
-  if (target) await updateExcavator(target.uid, { area: selectedArea.value });
+  if (!target) return;
+  await removeExcavatorTripsForDate(target.uid, selection.date);
+  await updateExcavator(target.uid, { area: selectedArea.value, trucks: 0, rl: "", notes: "" });
 };
 
 // Remove this excavator from the selected area: clear its entered trips for the
@@ -822,7 +827,8 @@ onUnmounted(() => {
                   class="exc-mini-input"
                   type="number"
                   min="0"
-                  :value="exc.trucks"
+                  placeholder="0"
+                  :value="exc.trucks === 0 ? '' : exc.trucks"
                   @change="setExc(exc.uid, { trucks: $event.target.value })"
                 />
               </div>
