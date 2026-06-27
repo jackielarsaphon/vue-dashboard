@@ -278,17 +278,31 @@ const selectedIndex = computed(() => Math.max(0, areaTabs.value.indexOf(selected
 const detailRows = computed(() => excavators.value.filter((excavator) => excavator.area === selectedArea.value));
 const detailTrips = computed(() => detailRows.value.reduce((sum, excavator) => sum + excTotal(entries.value[excavator.uid]), 0));
 
-// Excavator name picker options: the registered excavator codes from the
-// Excavator master page (the live active roster), so the EXCAVATOR cell is a
-// dropdown of known units instead of a free-text field. Always includes the
-// row's own current code as a fallback.
-const excavatorCodeOptions = computed(() =>
-  Array.from(new Set(excavators.value.map((excavator) => excavator.name).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
-);
-const rowExcavatorOptions = (exc) => {
-  const list = excavatorCodeOptions.value;
-  return exc.name && !list.includes(exc.name) ? [exc.name, ...list] : list;
+// True when an excavator has logged any trips for the selected date (either shift,
+// any hour) — i.e. it's already been used in data entry.
+const excavatorHasDateTrips = (uid) => {
+  for (const shiftType of ["Day", "Night"]) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const entry = getBucket(selection.date, shiftType, hour)[uid];
+      if (entry && excTotal(entry) > 0) return true;
+    }
+  }
+  return false;
 };
+
+// EXCAVATOR cell options: the row's own current code plus every AVAILABLE unit —
+// one that's idle (assigned to no area) AND has logged no trips for the date. A
+// unit therefore drops out of the picker as soon as it's placed in an area or
+// given trips, so you can't pick a unit that's already in use, and changing a row
+// never pulls a unit out of another area.
+const availableExcavatorCodes = computed(() =>
+  excavators.value
+    .filter((excavator) => !excavator.area && !excavatorHasDateTrips(excavator.uid))
+    .map((excavator) => excavator.name)
+    .filter(Boolean),
+);
+const rowExcavatorOptions = (exc) =>
+  Array.from(new Set([exc.name, ...availableExcavatorCodes.value].filter(Boolean))).sort((a, b) => a.localeCompare(b));
 // Step 2 plan (soil/ore/total) for the area currently selected in Step 3.
 const selectedAreaPlan = computed(() => {
   const values = pitAmounts.value[selectedArea.value] ?? { soil: "", ore: "" };
@@ -406,32 +420,30 @@ const commitArea = () => {
 
 const setExc = (id, patch) => updateExcavator(id, patch);
 
-// Picking a code in the EXCAVATOR cell swaps this area slot to a different
-// registered unit. Codes are globally unique (one record per physical unit) and
-// excavators are created only on the Excavator master page, so we never rename or
-// create here — we move the chosen unit into this area (sets mining_area_id) and
-// unassign the one it replaced (only when that slot has no trips, so entered data
-// is never lost). The replaced unit stays in the master, free to assign elsewhere.
+// Editing the EXCAVATOR cell relabels this row's unit IN PLACE: the row keeps its
+// area and the trips already entered, and ONLY the code changes — nothing is pulled
+// in or out of another area, and no trips move between records. Always editable
+// (no lock), can be changed repeatedly. Because excavators.code is unique and the
+// chosen code belongs to an idle record (only idle units are offered), we swap the
+// two codes via a throwaway temp code to dodge the unique clash: this row's record
+// takes the picked code, and the idle record that held it takes this row's old code
+// (and stays idle, so no area is ever touched).
 const pickExcavator = async (row, code) => {
   if (!code || code === row.name) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
-  if (!target || target.uid === row.uid) return;
-  await updateExcavator(target.uid, { area: selectedArea.value });
-  if (excTotal(entries.value[row.uid]) === 0) {
-    await updateExcavator(row.uid, { area: "" });
-    if (openUid.value === row.uid) openUid.value = null;
-  }
+  if (!target || target.uid === row.uid || target.area) return;
+  const oldCode = row.name;
+  const tempCode = `__swap_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  await updateExcavator(target.uid, { name: tempCode });
+  await updateExcavator(row.uid, { name: code });
+  await updateExcavator(target.uid, { name: oldCode });
 };
 
 // Excavators are created on the Excavator master page; here you only place an
 // existing registered unit into the selected area (sets its mining_area_id). The
-// pool is every active excavator not already in this area.
-const assignableExcavators = computed(() =>
-  excavators.value
-    .filter((excavator) => excavator.area !== selectedArea.value)
-    .map((excavator) => excavator.name)
-    .sort((a, b) => a.localeCompare(b)),
-);
+// pool is the same AVAILABLE set as the row picker — idle units with no trips yet —
+// so adding one never pulls a unit out of another area or re-adds one already in use.
+const assignableExcavators = computed(() => [...availableExcavatorCodes.value].sort((a, b) => a.localeCompare(b)));
 // "+ Add excavator" assigns the first available unit straight away — no picker
 // step. Swap it to a specific unit afterward via the row's dropdown. Start the row
 // completely fresh: wipe any trips the unit logged for the date and clear its
@@ -819,7 +831,7 @@ onUnmounted(() => {
                   :model-value="exc.name"
                   :options="rowExcavatorOptions(exc)"
                   placeholder="Search excavator"
-                  empty-text="No excavator available"
+                  empty-text="No idle excavator"
                   @change="pickExcavator(exc, $event)"
                 />
               </div>

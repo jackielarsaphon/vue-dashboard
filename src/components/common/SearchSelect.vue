@@ -10,6 +10,7 @@ const props = defineProps({
   options: { type: Array, default: () => [] },
   placeholder: { type: String, default: "" },
   emptyText: { type: String, default: "No matches" },
+  disabled: { type: Boolean, default: false },
 });
 const emit = defineEmits(["change", "update:modelValue"]);
 
@@ -69,6 +70,7 @@ const filtered = computed(() => {
 });
 
 const openMenu = (event) => {
+  if (props.disabled) return;
   // Always surface the current value when focusing (and select it so typing
   // replaces it), so the field never looks empty over a real selection.
   query.value = String(props.modelValue ?? "");
@@ -122,13 +124,14 @@ const onBlur = () => {
       autocomplete="off"
       :placeholder="placeholder"
       :value="query"
+      :disabled="disabled"
       @focus="openMenu"
       @input="onInput"
       @blur="onBlur"
       @keydown.enter.prevent="onEnter"
       @keydown.esc="open = false"
     />
-    <span class="ss-caret" aria-hidden="true">▾</span>
+    <span v-if="!disabled" class="ss-caret" aria-hidden="true">▾</span>
     <div v-if="open" class="ss-list" :style="menuStyle">
       <button
         v-for="option in filtered"
@@ -165,6 +168,11 @@ const onBlur = () => {
   outline: none;
   border-color: var(--accent);
   cursor: text;
+}
+.ss-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  -webkit-text-fill-color: var(--ink);
 }
 .ss-caret {
   position: absolute;
