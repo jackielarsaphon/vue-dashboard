@@ -31,7 +31,6 @@ const {
   addAreaExcavator,
   updateAreaExcavator,
   removeAreaExcavatorPlacement,
-  removePlacementTripsForDate,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,
@@ -452,10 +451,10 @@ const addExcavator = async () => {
   if (target) await addAreaExcavator(selectedArea.value, target.uid);
 };
 
-// Remove this placement from the pit: clear its trips for the date (this pit only)
-// and delete the placement row. Other pits keep the same excavator and its data.
+// Remove this placement from the pit: deletes ALL its trips and the placement row
+// from the database (removeAreaExcavatorPlacement). Other pits / other rows of the
+// same excavator are untouched.
 const deleteExc = async (placement) => {
-  await removePlacementTripsForDate(placement.placementId, selection.date);
   await removeAreaExcavatorPlacement(placement.placementId);
   if (openPlacementId.value === placement.placementId) openPlacementId.value = null;
 };

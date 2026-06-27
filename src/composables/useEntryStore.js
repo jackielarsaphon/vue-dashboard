@@ -454,7 +454,26 @@ const updateAreaExcavator = async (placementId, patch) => {
   await areaExcavatorsStore.update(placementId, dbPatch);
 };
 
+// Delete ALL of a placement's logged trips (every date/shift/hour) from the
+// database, then remove the placement row itself — so removing a row from a pit
+// leaves nothing orphaned behind in production_entries.
 const removeAreaExcavatorPlacement = async (placementId) => {
+  await supabase.from("production_entries").delete().eq("placement_id", placementId);
+  const dropFromStore = (store) => {
+    const next = {};
+    Object.entries(store.value).forEach(([key, bucket]) => {
+      if (bucket && bucket[placementId]) {
+        const copy = { ...bucket };
+        delete copy[placementId];
+        next[key] = copy;
+      } else {
+        next[key] = bucket;
+      }
+    });
+    store.value = next;
+  };
+  dropFromStore(entriesByKey);
+  dropFromStore(draftRowsByKey);
   await areaExcavatorsStore.remove(placementId);
 };
 

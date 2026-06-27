@@ -61,7 +61,11 @@ export const useMiningAreas = () => {
     areas.value = areas.value.filter((item) => item !== area);
     const id = idByCode.get(area);
     idByCode.delete(area);
-    if (id) supabase.from("mining_areas").delete().eq("id", id).then(() => {});
+    // Soft delete: production_entries.mining_area_id is ON DELETE RESTRICT, so a
+    // hard delete fails (silently) once any trip references this pit, leaving the UI
+    // and database out of sync. Mark inactive instead — load() only reads active
+    // rows — so the removal reliably persists to the database.
+    if (id) supabase.from("mining_areas").update({ active: false }).eq("id", id).then(() => {});
   };
 
   return { areas, addArea, updateArea, removeArea };
