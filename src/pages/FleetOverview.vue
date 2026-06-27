@@ -152,14 +152,19 @@ const excDayRows = computed(() =>
     .filter((row) => row.trip > 0),
 );
 
+// Excavator detail is scoped to the SELECTED hour (the HOUR box): it shows what each
+// excavator did in that hour, not the whole day. (The Production by excavator chart
+// below still uses the full-day totals.)
+const excHourRows = computed(() => excRows.value.filter((row) => row.trip > 0));
+
 const sortKey = ref("exc");
 const asc = ref(true);
 const area = ref("ALL");
-const areas = computed(() => ["ALL", ...Array.from(new Set(excDayRows.value.map((row) => row.area).filter(Boolean)))]);
-const maxTrip = computed(() => Math.max(1, ...excDayRows.value.map((row) => row.trip)));
+const areas = computed(() => ["ALL", ...Array.from(new Set(excHourRows.value.map((row) => row.area).filter(Boolean)))]);
+const maxTrip = computed(() => Math.max(1, ...excHourRows.value.map((row) => row.trip)));
 
 const rows = computed(() => {
-  const filtered = area.value === "ALL" ? [...excDayRows.value] : excDayRows.value.filter((row) => row.area === area.value);
+  const filtered = area.value === "ALL" ? [...excHourRows.value] : excHourRows.value.filter((row) => row.area === area.value);
   filtered.sort((a, b) => {
     const av = a[sortKey.value];
     const bv = b[sortKey.value];
@@ -474,6 +479,7 @@ const areaBars = computed(() => {
           <div class="panel-head">
             <h2>Excavator detail</h2>
             <div class="panel-tools">
+              <span class="now-pill mono">Hour {{ String(selection.hour).padStart(2, "0") }}:00</span>
               <div class="seg">
                 <button v-for="item in areas" :key="item" :class="{ on: area === item }" type="button" @click="area = item">
                   {{ item }}
