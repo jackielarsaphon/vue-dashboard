@@ -166,16 +166,22 @@ const fleetStats = computed(() => {
   return { excavators: excavatorCount, trucks, ratio, tripInHour };
 });
 
-// Shift summary: Day vs Night BCM totals for the selected date (sum across all 24 hours).
+// Shift summary: Day vs Night production TONNES for the selected date (sum across
+// all 24 hours). Tonnes — not BCM — so this panel matches the Total Production KPI
+// and the tonnes-based Plan it's compared against.
 const shiftTotals = (shiftType) => {
   let soft = 0;
   let ore = 0;
   for (let hour = 0; hour < 24; hour += 1) {
-    const sums = sumBucket(selection.date, shiftType, hour);
-    soft += sums.soft;
-    ore += sums.ore;
+    Object.values(getBucket(selection.date, shiftType, hour)).forEach((entry) => {
+      entry.rows.forEach((row) => {
+        const tonnes = rowTonnes(row);
+        if (isWaste(row.material)) soft += tonnes;
+        else ore += tonnes;
+      });
+    });
   }
-  return { soft: soft * BCM_PER_TRIP, ore: ore * BCM_PER_TRIP };
+  return { soft, ore };
 };
 const shifts = computed(() => [
   { key: "day", name: "Day", ...shiftTotals("Day"), color: "var(--day)" },
@@ -187,7 +193,9 @@ const totalAll = computed(() => shifts.value.reduce((sum, item) => sum + item.so
 const totalPlan = computed(() => planTonnesForDate(selection.date));
 const planPct = computed(() => pct(totalAll.value, totalPlan.value));
 
-// Production by shift - area: Day vs Night BCM per area, for the selected date.
+// Production by shift - area: Day vs Night TONNES per area, for the selected date.
+// Tonnes so the bars line up with the tonnes Plan column (areaTarget) and the
+// Total Production KPI.
 const areasByShift = computed(() => {
   const byArea = new Map();
   excavators.value.forEach((excavator) => {
@@ -200,8 +208,8 @@ const areasByShift = computed(() => {
         const excavator = excavators.value.find((item) => item.uid === excavatorUid);
         const stat = excavator && byArea.get(excavator.area);
         if (!stat) return;
-        const trips = entry.rows.reduce((sum, row) => sum + rowTotal(row), 0);
-        stat[shiftType === "Day" ? "day" : "night"] += trips * BCM_PER_TRIP;
+        const tonnes = entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
+        stat[shiftType === "Day" ? "day" : "night"] += tonnes;
       });
     }
   });
