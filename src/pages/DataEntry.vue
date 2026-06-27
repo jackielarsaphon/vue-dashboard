@@ -8,6 +8,7 @@ import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
+import SearchSelect from "../components/common/SearchSelect.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -909,22 +910,31 @@ onUnmounted(() => {
                   </select>
                 </td>
                 <td>
-                  <select class="gt-sel" :value="row.material" @change="setRowOreType(row, $event.target.value)">
-                    <option v-if="rowOreOptions(row).length === 0" value="">No ore type available</option>
-                    <option v-for="ore in rowOreOptions(row)" :key="ore" :value="ore">{{ ore }}</option>
-                  </select>
+                  <SearchSelect
+                    :model-value="row.material"
+                    :options="rowOreOptions(row)"
+                    placeholder="Search ore type"
+                    empty-text="No ore type available"
+                    @change="setRowOreType(row, $event)"
+                  />
                 </td>
                 <td>
-                  <select class="gt-sel" :value="row.dump" @change="setEntryRow(row, { dump: $event.target.value })">
-                    <option v-if="rowLocationOptions(row).length === 0" value="">No location available</option>
-                    <option v-for="loc in rowLocationOptions(row)" :key="loc" :value="loc">{{ loc }}</option>
-                  </select>
+                  <SearchSelect
+                    :model-value="row.dump"
+                    :options="rowLocationOptions(row)"
+                    placeholder="Search location"
+                    empty-text="No location available"
+                    @change="setEntryRow(row, { dump: $event })"
+                  />
                 </td>
                 <td>
-                  <select class="gt-sel" :value="row.model" @change="setEntryRow(row, { model: $event.target.value })">
-                    <option v-if="TRUCKS.length === 0" value="">No dump model available</option>
-                    <option v-for="truck in TRUCKS" :key="truck" :value="truck">{{ truck }}</option>
-                  </select>
+                  <SearchSelect
+                    :model-value="row.model"
+                    :options="TRUCKS"
+                    placeholder="Search dump model"
+                    empty-text="No dump model available"
+                    @change="setEntryRow(row, { model: $event })"
+                  />
                 </td>
                 <td class="gt-trip-cell">
                   <input
