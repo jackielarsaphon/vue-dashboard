@@ -262,7 +262,9 @@ const areaShiftMax = computed(() => Math.max(1, ...areasByShift.value.map((item)
 
 // Vertical STACKED columns for "Production by shift - area": Day (bottom) + Night
 // (top), with a cream Plan column behind reaching the pit's Plan Production total.
-const shiftAreaChart = { W: 560, H: 300, padL: 34, padR: 10, padT: 20, padB: 34 };
+// padL leaves room for the y-axis labels, which grow to 6–7 digits (e.g. 30,000)
+// once the bars/plan use real tonnes — too small a pad clipped them at the edge.
+const shiftAreaChart = { W: 560, H: 300, padL: 54, padR: 10, padT: 20, padB: 34 };
 const shiftAreaYMax = computed(() => {
   const max = Math.max(1, ...areasByShift.value.map((item) => Math.max(item.day + item.night, item.plan)));
   const step = max > 20000 ? 10000 : max > 4000 ? 5000 : max > 2000 ? 1000 : 500;
