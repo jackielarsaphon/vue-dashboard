@@ -110,9 +110,10 @@ const excRows = computed(() =>
   excavators.value.map((excavator) => {
     let waste = 0;
     let ore = 0;
-    // Build everything from REAL Data entry input for this hour: an excavator's
-    // Area / trucks / note come only from the pits where it actually logged trips
-    // this hour — not every pit it happens to be rostered in.
+    // Build from REAL Data entry input for this hour. Trips come from the logged
+    // entries (every pit this unit hauled in). On top of that, pits where the unit
+    // only wrote a Production note (no trips — e.g. "broken down / being serviced")
+    // are surfaced too, so they don't silently disappear from the dashboard.
     const areaSet = new Set();
     const activePlacementIds = new Set();
     Object.entries(entries.value).forEach(([placementId, entry]) => {
@@ -129,9 +130,17 @@ const excRows = computed(() =>
         activePlacementIds.add(placementId);
       }
     });
+    (placementsByExcavator.value[excavator.uid] || []).forEach((placement) => {
+      if (!String(placementNoteFor(placement.placementId) || "").trim()) return;
+      if (placement.area) areaSet.add(placement.area);
+      activePlacementIds.add(placement.placementId);
+    });
     const placements = (placementsByExcavator.value[excavator.uid] || []).filter((p) => activePlacementIds.has(p.placementId));
-    const status = placements[0]?.status || excavator.status;
+    const trip = waste + ore;
     const note = placements.map((p) => (placementNoteFor(p.placementId) || "").trim()).filter(Boolean)[0] || "";
+    const hasNote = !!note;
+    // Red alert when a note was written but no trips logged (matches Data entry).
+    const status = hasNote && trip === 0 ? "alert" : placements[0]?.status || excavator.status;
     return {
       exc: excavator.name,
       trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
@@ -140,19 +149,20 @@ const excRows = computed(() =>
         .join(", "),
       status,
       remark: note || STATUS_REMARK[status] || "Normal",
-      trip: waste + ore,
+      trip,
       oreTrip: ore,
       wasteTrip: waste,
       waste: waste * BCM_PER_TRIP,
       ore: ore * BCM_PER_TRIP,
+      hasNote,
     };
   }),
 );
 
 // Both the Excavator detail table and the Production by excavator chart are scoped
 // to the SELECTED hour (the HOUR box): they show what each excavator did in that
-// hour, built from excRows (only units that logged trips that hour appear).
-const excHourRows = computed(() => excRows.value.filter((row) => row.trip > 0));
+// hour — units that logged trips OR wrote a Production note for the hour appear.
+const excHourRows = computed(() => excRows.value.filter((row) => row.trip > 0 || row.hasNote));
 
 const sortKey = ref("exc");
 const asc = ref(true);
