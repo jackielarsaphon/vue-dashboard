@@ -229,7 +229,7 @@ const shiftAreaY = (value) => {
 const shiftAreaBars = computed(() => {
   const { W, padL, padR } = shiftAreaChart;
   const cw = (W - padL - padR) / Math.max(1, areasByShift.value.length);
-  const bw = cw * 0.52;
+  const bw = cw * 0.64;
   const baseY = shiftAreaY(0);
   return areasByShift.value.map((item, i) => {
     const cx = padL + i * cw + cw / 2;
