@@ -306,7 +306,7 @@ const removeWeek = async (weekStart) => {
           <p v-if="factorMessage" class="mining-message">{{ factorMessage }}</p>
         </div>
         <div class="modal-foot">
-          <span class="foot-note">Week start is the Monday of the chosen week.</span>
+          <span class="foot-note">Week start is the Saturday of the chosen week.</span>
           <div class="foot-actions">
             <button class="btn btn-primary" type="button" @click="closeFactors">Done</button>
           </div>

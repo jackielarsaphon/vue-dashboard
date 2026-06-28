@@ -5,7 +5,7 @@ import { useTruckModelsStore } from "../stores/truckModelsStore";
 // Weekly tonnes/trip factors (the TD&MVDC value multiplied with trips). The
 // factor changes every week, so it's stored as effective-dated history in the
 // public.truck_model_factors table (one row per truck model per week_start =
-// the Monday of the week). For any date we use the latest factor whose week
+// the Saturday of the week). For any date we use the latest factor whose week
 // is on/before that date's week (carry-forward), so past weeks keep their own
 // factor even after the current one is changed. Falls back to the truck model's
 // capacity_tonnes, then DEFAULT_TONNES_PER_TRIP, when no weekly record exists.
@@ -20,11 +20,11 @@ const truckModelsStore = useTruckModelsStore();
 const rows = ref([]);
 const loading = ref(false);
 
-// Monday (ISO week start) of the week containing `dateIso` (yyyy-mm-dd), as
-// yyyy-mm-dd. Weeks run Mon–Sun.
+// Saturday (week start) of the week containing `dateIso` (yyyy-mm-dd), as
+// yyyy-mm-dd. Weeks run Sat–Fri.
 export const weekStartOf = (dateIso) => {
   const d = new Date(`${dateIso}T00:00:00`);
-  const dow = (d.getDay() + 6) % 7; // 0 = Monday … 6 = Sunday
+  const dow = (d.getDay() + 1) % 7; // 0 = Saturday … 6 = Friday
   d.setDate(d.getDate() - dow);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
