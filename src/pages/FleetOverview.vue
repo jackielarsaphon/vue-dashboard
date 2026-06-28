@@ -33,7 +33,7 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor } = useEntryStore();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow } = useEntryStore();
 const { planTonnesForDate, planMaterialTotalsForDate } = usePlanProduction();
 const { areaTarget } = useAreaTargets();
 
@@ -62,21 +62,13 @@ const kpiCards = computed(() => [
 const placementsByExcavator = computed(() => {
   const map = {};
   areaExcavators.value.forEach((placement) => {
+    // Skip pits this unit was removed from this hour, so the Area cell (and the
+    // trucks/note/status derived from it) matches the Data entry table.
+    if (isPlacementRemovedNow(placement.placementId)) return;
     (map[placement.uid] = map[placement.uid] || []).push(placement);
   });
   return map;
 });
-const placementInfoFor = (uid) => {
-  const placements = placementsByExcavator.value[uid] || [];
-  return {
-    area: Array.from(new Set(placements.map((p) => p.area).filter(Boolean)))
-      .sort((a, b) => a.localeCompare(b))
-      .join(", "),
-    trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
-    note: placements.map((p) => (placementNoteFor(p.placementId) || "").trim()).filter(Boolean)[0] || "",
-    status: placements[0]?.status,
-  };
-};
 
 // Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
 // and the "BCM by hour" chart, which are intentionally hour-scoped.
@@ -84,22 +76,36 @@ const excRows = computed(() =>
   excavators.value.map((excavator) => {
     let waste = 0;
     let ore = 0;
-    // An excavator can be placed in several pits — sum every slot for this unit.
-    Object.values(entries.value).forEach((entry) => {
+    // Build everything from REAL Data entry input for this hour: an excavator's
+    // Area / trucks / note come only from the pits where it actually logged trips
+    // this hour — not every pit it happens to be rostered in.
+    const areaSet = new Set();
+    const activePlacementIds = new Set();
+    Object.entries(entries.value).forEach(([placementId, entry]) => {
       if (entry.excavatorId !== excavator.uid) return;
+      let entryTrips = 0;
       entry.rows.forEach((row) => {
         const total = rowTotal(row);
         if (isWaste(row.material)) waste += total;
         else ore += total;
+        entryTrips += total;
       });
+      if (entryTrips > 0) {
+        if (entry.area) areaSet.add(entry.area);
+        activePlacementIds.add(placementId);
+      }
     });
-    const info = placementInfoFor(excavator.uid);
+    const placements = (placementsByExcavator.value[excavator.uid] || []).filter((p) => activePlacementIds.has(p.placementId));
+    const status = placements[0]?.status || excavator.status;
+    const note = placements.map((p) => (placementNoteFor(p.placementId) || "").trim()).filter(Boolean)[0] || "";
     return {
       exc: excavator.name,
-      trucks: info.trucks,
-      area: info.area,
-      status: info.status || excavator.status,
-      remark: info.note || STATUS_REMARK[info.status || excavator.status] || "Normal",
+      trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
+      area: Array.from(areaSet)
+        .sort((a, b) => a.localeCompare(b))
+        .join(", "),
+      status,
+      remark: note || STATUS_REMARK[status] || "Normal",
       trip: waste + ore,
       oreTrip: ore,
       wasteTrip: waste,
