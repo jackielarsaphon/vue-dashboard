@@ -154,10 +154,10 @@ const notesByKey = ref({});
 // { [placementId]: rl_meters }. Like notes, RL is hour-scoped so editing this
 // hour never rewrites earlier hours; a new hour carries forward the latest value.
 const rlByKey = ref({});
-// Per-shift removal points (public.placement_removed) for the loaded date:
-// { Day: { [placementId]: removedFromHour }, Night: { … } }. A placement is hidden
-// from its removal hour onward within that shift; earlier hours keep their data.
-const removalsByShiftType = ref({ Day: {}, Night: {} });
+// Per-hour removals (public.placement_removed), same keying ->
+// { [placementId]: true }. Removal is hour-scoped: removing a placement affects
+// ONLY that one hour — every other hour (before and after) keeps its data.
+const removedByKey = ref({});
 
 const currentKey = computed(() => keyFor(selection.date, selection.shiftType, selection.hour));
 
@@ -364,8 +364,8 @@ const fetchDateEntries = async (date) => {
     }
   }
 
-  // Per-shift removal points: where each placement was removed within a shift.
-  const newRemovals = { Day: {}, Night: {} };
+  // Per-hour removals: which placements were removed in which (shift, hour).
+  const newRemoved = {};
   if (shiftIds.length) {
     const { data: removed, error: removedError } = await supabase
       .from("placement_removed")
@@ -375,7 +375,8 @@ const fetchDateEntries = async (date) => {
       removed.forEach((row) => {
         const shiftType = shiftTypeById[row.shift_id];
         if (!shiftType) return;
-        newRemovals[shiftType][row.placement_id] = row.log_hour;
+        const key = keyFor(date, shiftType, row.log_hour);
+        (newRemoved[key] = newRemoved[key] || {})[row.placement_id] = true;
       });
     }
   }
@@ -384,7 +385,7 @@ const fetchDateEntries = async (date) => {
   draftRowsByKey.value = {};
   notesByKey.value = newNotes;
   rlByKey.value = newRl;
-  removalsByShiftType.value = newRemovals;
+  removedByKey.value = newRemoved;
 };
 
 watch(() => selection.date, (date) => fetchDateEntries(date), { immediate: true });
@@ -924,58 +925,41 @@ const setPlacementRl = async (placementId, value) => {
   );
 };
 
-// True when a placement has been removed at or before the selected hour within the
-// selected shift — so it is hidden from this hour onward, but still visible (with
-// its own data) in the earlier hours it actually worked.
-const isPlacementRemovedNow = (placementId) => {
-  const removedHour = removalsByShiftType.value[selection.shiftType]?.[placementId];
-  if (removedHour === undefined) return false;
-  const order = SHIFT_HOURS[selection.shiftType] || [];
-  return order.indexOf(selection.hour) >= order.indexOf(removedHour);
-};
+// True when a placement was removed in exactly the selected (date, shift, hour) —
+// so it is hidden for that one hour only. Every other hour is unaffected.
+const isPlacementRemovedNow = (placementId) => !!removedByKey.value[currentKey.value]?.[placementId];
 
-// Remove a placement from THIS hour onward (within this shift): clears its trips /
-// RL / note for the current hour and every later hour of the shift, and records a
-// removal point so the row disappears from here forward. Earlier hours — and other
-// shifts / dates — keep the placement and all their data.
+// Remove a placement from THIS hour only: clears its trips / RL / note for the
+// current hour and records an hour-scoped removal so the row disappears for this
+// hour. No other hour (earlier OR later) — nor other shifts / dates — is touched.
 const removePlacementFromHour = async (placementId) => {
-  const order = SHIFT_HOURS[selection.shiftType] || [];
-  const idx = order.indexOf(selection.hour);
-  const hoursOnward = idx >= 0 ? order.slice(idx) : [selection.hour];
   const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
   if (!shiftId) return;
+  const hour = selection.hour;
 
-  await supabase.from("production_entries").delete().eq("placement_id", placementId).eq("shift_id", shiftId).in("log_hour", hoursOnward);
-  await supabase.from("placement_rl").delete().eq("placement_id", placementId).eq("shift_id", shiftId).in("log_hour", hoursOnward);
-  await supabase.from("placement_notes").delete().eq("placement_id", placementId).eq("shift_id", shiftId).in("log_hour", hoursOnward);
+  await supabase.from("production_entries").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
+  await supabase.from("placement_rl").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
+  await supabase.from("placement_notes").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   await supabase.from("placement_removed").upsert(
-    { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour },
-    { onConflict: "placement_id,shift_id" },
+    { placement_id: placementId, shift_id: shiftId, log_hour: hour },
+    { onConflict: "placement_id,shift_id,log_hour" },
   );
 
-  // Local state: drop this placement from the affected hours and mark it removed.
-  const affectedKeys = new Set(hoursOnward.map((h) => keyFor(selection.date, selection.shiftType, h)));
-  const dropFromKeys = (store) => {
-    const next = {};
-    Object.entries(store.value).forEach(([key, bucket]) => {
-      if (affectedKeys.has(key) && bucket && bucket[placementId]) {
-        const copy = { ...bucket };
-        delete copy[placementId];
-        next[key] = copy;
-      } else {
-        next[key] = bucket;
-      }
-    });
-    store.value = next;
+  // Local state: drop this placement from the current hour only and mark it removed.
+  const key = currentKey.value;
+  const dropFromKey = (store) => {
+    const bucket = store.value[key];
+    if (bucket && bucket[placementId]) {
+      const copy = { ...bucket };
+      delete copy[placementId];
+      store.value = { ...store.value, [key]: copy };
+    }
   };
-  dropFromKeys(entriesByKey);
-  dropFromKeys(draftRowsByKey);
-  dropFromKeys(rlByKey);
-  dropFromKeys(notesByKey);
-  removalsByShiftType.value = {
-    ...removalsByShiftType.value,
-    [selection.shiftType]: { ...removalsByShiftType.value[selection.shiftType], [placementId]: selection.hour },
-  };
+  dropFromKey(entriesByKey);
+  dropFromKey(draftRowsByKey);
+  dropFromKey(rlByKey);
+  dropFromKey(notesByKey);
+  removedByKey.value = { ...removedByKey.value, [key]: { ...(removedByKey.value[key] || {}), [placementId]: true } };
 };
 
 export const useEntryStore = () => ({
