@@ -95,11 +95,26 @@ button, input, select { font: inherit; }
 .dash {
   min-height: 100vh;
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto auto auto 1fr;
   gap: 10px;
   padding: 10px;
 }
 :root[data-density="regular"] .dash { gap: 14px; padding: 14px; }
+.dash-toolbar { display: flex; justify-content: flex-end; }
+.dl-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dl-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dl-btn:disabled { opacity: 0.6; cursor: default; }
 
 .topbar {
   display: flex;

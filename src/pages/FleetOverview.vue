@@ -5,6 +5,7 @@ import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
+import html2canvas from "html2canvas";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
@@ -34,8 +35,41 @@ watchEffect(() => {
 
 const { selection } = useShiftSelection();
 const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow } = useEntryStore();
-const { planTonnesForDate, planMaterialTotalsForDate } = usePlanProduction();
+const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans } = usePlanProduction();
 const { areaTarget } = useAreaTargets();
+
+// Download the whole Fleet overview as one PNG. html2canvas rasterises the live
+// DOM (so theme CSS variables, fonts and layout match the screen), skipping the
+// toolbar button and the floating tweaks panel.
+const dashRef = ref(null);
+const downloading = ref(false);
+const downloadImage = async () => {
+  const node = dashRef.value;
+  if (!node || downloading.value) return;
+  downloading.value = true;
+  try {
+    // Make sure web fonts are ready so text doesn't fall back in the capture.
+    if (document.fonts?.ready) await document.fonts.ready;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const bg = rootStyles.getPropertyValue("--bg").trim() || getComputedStyle(document.body).backgroundColor || "#ffffff";
+    const canvas = await html2canvas(node, {
+      backgroundColor: bg,
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      windowWidth: node.scrollWidth,
+      ignoreElements: (el) => el.classList?.contains("no-capture") || el.classList?.contains("twk-panel"),
+    });
+    const link = document.createElement("a");
+    link.download = `fleet-overview-${selection.date}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  } catch (err) {
+    console.error("Download image failed", err);
+  } finally {
+    downloading.value = false;
+  }
+};
 
 // KPI-card targets are derived from Plan Production, not a fixed number. The plan
 // figures (soil = Waste, ore = ORE) are entered as TONNES per pit (production_plans
@@ -193,14 +227,21 @@ const totalPlan = computed(() => planTonnesForDate(selection.date));
 const planPct = computed(() => pct(totalAll.value, totalPlan.value));
 
 // Production by shift - area: Day vs Night TONNES per area, for the selected date.
-// Tonnes so the bars line up with the tonnes Plan column (areaTarget) and the
-// Total Production KPI.
+// Tonnes so the bars line up with the per-pit Plan Production column and the Total
+// Production KPI.
 const areasByShift = computed(() => {
+  // Plan column (the cream shadow) = each pit's Plan Production total for the date
+  // (soil + ore), not the static area target. Pits with no plan entry show no shadow.
+  const plans = getDatePlans(selection.date);
+  const planTotal = (area) => {
+    const p = plans[area];
+    return p ? p.soil + p.ore : 0;
+  };
   const byArea = new Map();
   // Seed a column per pit that has a placed excavator.
   areaExcavators.value.forEach((placement) => {
     if (!placement.area) return;
-    if (!byArea.has(placement.area)) byArea.set(placement.area, { area: placement.area, day: 0, night: 0, plan: areaTarget(placement.area) });
+    if (!byArea.has(placement.area)) byArea.set(placement.area, { area: placement.area, day: 0, night: 0, plan: planTotal(placement.area) });
   });
   ["Day", "Night"].forEach((shiftType) => {
     for (let hour = 0; hour < 24; hour += 1) {
@@ -220,7 +261,7 @@ const areasByShift = computed(() => {
 const areaShiftMax = computed(() => Math.max(1, ...areasByShift.value.map((item) => Math.max(item.day, item.night))));
 
 // Vertical STACKED columns for "Production by shift - area": Day (bottom) + Night
-// (top), with a cream Plan column behind reaching the area's plan/target.
+// (top), with a cream Plan column behind reaching the pit's Plan Production total.
 const shiftAreaChart = { W: 560, H: 300, padL: 34, padR: 10, padT: 20, padB: 34 };
 const shiftAreaYMax = computed(() => {
   const max = Math.max(1, ...areasByShift.value.map((item) => Math.max(item.day + item.night, item.plan)));
@@ -389,8 +430,14 @@ const areaBars = computed(() => {
 </script>
 
 <template>
-  <div class="dash">
+  <div ref="dashRef" class="dash">
     <TopBar subtitle="Live" />
+
+    <div class="dash-toolbar no-capture">
+      <button class="dl-btn" type="button" :disabled="downloading" @click="downloadImage">
+        {{ downloading ? "Saving…" : "⬇ Download image" }}
+      </button>
+    </div>
 
     <section class="kpi-strip">
       <div v-for="card in kpiCards" :key="card.label" class="kpi" :class="`kpi-${card.kind}`">
