@@ -339,7 +339,9 @@ watch(
 
 const areaCards = computed(() =>
   areaTabs.value.map((name) => {
-    const placements = areaExcavators.value.filter((placement) => placement.area === name);
+    // Match the detail table: exclude placements removed from this hour onward, so
+    // the per-area "exc" count reflects what's actually working this hour.
+    const placements = areaExcavators.value.filter((placement) => placement.area === name && !isPlacementRemovedNow(placement.placementId));
     const trips = placements.reduce((sum, placement) => sum + excTotal(entries.value[slotKeyOf(placement)]), 0);
     const worst = placements.some((placement) => placement.status === "alert")
       ? "alert"
