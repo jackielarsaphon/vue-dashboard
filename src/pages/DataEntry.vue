@@ -427,6 +427,16 @@ const commitArea = () => {
 // so they're independent per pit.
 const setExc = (placement, patch) => updateAreaExcavator(placement.placementId, patch);
 
+// Status dot for a detail row: red "alert" when a Production note was written for
+// this hour but no trips were entered (a reminder to key the trips), otherwise the
+// placement's own status.
+const rowStatus = (placement) => {
+  const hasNote = !!String(placementNoteFor(placement.placementId) || "").trim();
+  const trips = excTotal(entries.value[slotKeyOf(placement)]);
+  if (hasNote && trips === 0) return "alert";
+  return placement.status;
+};
+
 // True when this placement's slot has trips logged for the selected date.
 const placementHasDateTrips = (placement) => {
   const slot = slotKeyOf(placement);
@@ -887,7 +897,7 @@ onUnmounted(() => {
 
             <div v-for="exc in detailRows" :key="exc.placementId" class="exc-row">
               <div class="exc-cell exc-name">
-                <StatusDot :status="exc.status" />
+                <StatusDot :status="rowStatus(exc)" />
                 <SearchSelect
                   :model-value="exc.name"
                   :options="rowExcavatorOptions(exc)"
