@@ -503,21 +503,38 @@ const removeExcavator = async (uid) => {
 };
 
 // --- Per-pit placement CRUD (public.area_excavators) -----------------------
-// Place an excavator into a pit. The same excavator can be placed in several pits
-// (one row each); the unique(mining_area_id, excavator_id) constraint just blocks
-// the same one twice in one pit.
+// Place an excavator into a pit for the CURRENT hour. area_excavators is just the
+// registry of (pit, excavator) slots — the same excavator can sit in several pits
+// (one row each), and the unique(mining_area_id, excavator_id) constraint blocks the
+// same one twice in one pit, so a slot is REUSED across hours rather than duplicated.
+// Presence per hour is data-driven (see placementHasDataNow): adding here only seeds
+// an empty draft row for THIS hour so the unit shows up to be keyed — nothing is
+// remembered or carried into any other hour. The row vanishes again unless real data
+// (trips / note / RL) is entered for the hour.
 const addAreaExcavator = async (areaCode, excavatorId) => {
   const miningAreaId = areaIdByCode.value[areaCode];
   if (!miningAreaId || !excavatorId) return;
-  await areaExcavatorsStore.create({
-    mining_area_id: miningAreaId,
-    excavator_id: excavatorId,
-    truck_count: 0,
-    rl_meters: null,
-    status: "ok",
-    notes: "",
-    active: true,
-  });
+  // Reuse the existing slot for this (pit, excavator) if there is one — the unique
+  // constraint forbids a second, and its other hours' data must stay untouched.
+  const existing = areaExcavatorsStore.items.value.find(
+    (row) => row.active && row.mining_area_id === miningAreaId && row.excavator_id === excavatorId,
+  );
+  let placementId = existing?.id;
+  if (!placementId) {
+    const result = await areaExcavatorsStore.create({
+      mining_area_id: miningAreaId,
+      excavator_id: excavatorId,
+      truck_count: 0,
+      rl_meters: null,
+      status: "ok",
+      notes: "",
+      active: true,
+    });
+    placementId = result?.data?.id;
+  }
+  if (!placementId) return;
+  // Seed a blank draft trip row so the placement appears in this hour ready for entry.
+  addEntryRow(placementId);
 };
 
 // Edit a placement's per-pit fields (which excavator it is, trucks / RL / note).
@@ -929,6 +946,48 @@ const setPlacementRl = async (placementId, value) => {
 // so it is hidden for that one hour only. Every other hour is unaffected.
 const isPlacementRemovedNow = (placementId) => !!removedByKey.value[currentKey.value]?.[placementId];
 
+// "Real data" for a placement at a given slot key = persisted trips, a Production
+// note, or an RL value. Drafts are transient (in-progress entry) and deliberately do
+// NOT count as real — so an empty, never-keyed row never carries itself forward.
+const placementHasRealDataAt = (placementId, key) => {
+  if (!key) return false;
+  if (excTotal(entriesByKey.value[key]?.[placementId]) > 0) return true;
+  if (String(notesByKey.value[key]?.[placementId] ?? "").trim()) return true;
+  const rl = rlByKey.value[key]?.[placementId];
+  return rl !== undefined && rl !== null;
+};
+
+// True when a placement has anything keyed for the CURRENT hour — real data, or a
+// draft trip row in progress (e.g. just added via "+ Add excavator", or opened to key).
+const placementHasDataNow = (placementId) => {
+  const key = currentKey.value;
+  if (placementHasRealDataAt(placementId, key)) return true;
+  return (draftRowsByKey.value[key]?.[placementId] || []).length > 0;
+};
+
+// Whether a placement's row shows in the current hour. Forward-only carry WITHIN the
+// operational day (slot order: Day 06→18 then Night 19→05), anchored on real data:
+//   • data/draft keyed THIS hour → always shows (covers "+ Add" and live keying);
+//   • otherwise walk the day's earlier slots in order — real data switches it ON and
+//     it stays on for the following hours, so a working unit keeps showing (empty,
+//     ready to key); a per-hour removal ("x") switches it OFF from that hour onward;
+//   • a removal at THIS hour hides it.
+// It never reaches before the first real-data hour and never crosses into another
+// date, and drafts don't propagate (only real trips / note / RL carry a unit forward).
+const placementVisibleNow = (placementId) => {
+  if (placementHasDataNow(placementId)) return true;
+  if (isPlacementRemovedNow(placementId)) return false;
+  const curIdx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
+  let visible = false;
+  for (let i = 0; i < curIdx; i += 1) {
+    const [st, h] = RL_SLOT_ORDER[i];
+    const key = keyFor(selection.date, st, h);
+    if (removedByKey.value[key]?.[placementId]) visible = false;
+    else if (placementHasRealDataAt(placementId, key)) visible = true;
+  }
+  return visible;
+};
+
 // Remove a placement from THIS hour only: clears its trips / RL / note for the
 // current hour and records an hour-scoped removal so the row disappears for this
 // hour. No other hour (earlier OR later) — nor other shifts / dates — is touched.
@@ -984,6 +1043,7 @@ export const useEntryStore = () => ({
   placementRlFor,
   setPlacementRl,
   isPlacementRemovedNow,
+  placementVisibleNow,
   removePlacementFromHour,
   removePlacementTripsForDate,
   addEntryRow,

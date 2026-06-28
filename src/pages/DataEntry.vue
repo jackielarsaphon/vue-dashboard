@@ -36,7 +36,7 @@ const {
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
-  isPlacementRemovedNow,
+  placementVisibleNow,
   removePlacementFromHour,
   addEntryRow,
   removeEntryRow,
@@ -288,10 +288,12 @@ const addAreaOpen = ref(false);
 
 const selectedArea = computed(() => (areaTabs.value.includes(area.value) ? area.value : areaTabs.value[0]));
 const selectedIndex = computed(() => Math.max(0, areaTabs.value.indexOf(selectedArea.value)));
-// Data entry rows = the excavator placements in the selected pit (one row per
-// placement). The same excavator can also be placed in other pits.
+// Data entry rows = excavator placements in the selected pit visible THIS hour: those
+// with data/draft keyed now, plus a one-hop carry-forward of any that had real data in
+// the immediately previous hour (so a working unit shows up the next hour ready to key,
+// without remembering a roster). "+ Add excavator" seeds a blank draft to add a row.
 const detailRows = computed(() =>
-  areaExcavators.value.filter((placement) => placement.area === selectedArea.value && !isPlacementRemovedNow(placement.placementId)),
+  areaExcavators.value.filter((placement) => placement.area === selectedArea.value && placementVisibleNow(placement.placementId)),
 );
 const detailTrips = computed(() => detailRows.value.reduce((sum, placement) => sum + excTotal(entries.value[slotKeyOf(placement)]), 0));
 
@@ -339,9 +341,9 @@ watch(
 
 const areaCards = computed(() =>
   areaTabs.value.map((name) => {
-    // Match the detail table: exclude placements removed from this hour onward, so
-    // the per-area "exc" count reflects what's actually working this hour.
-    const placements = areaExcavators.value.filter((placement) => placement.area === name && !isPlacementRemovedNow(placement.placementId));
+    // Match the detail table: placements visible this hour (data/draft now, or carried
+    // one hop from the previous hour's real data), so the per-area "exc" count matches.
+    const placements = areaExcavators.value.filter((placement) => placement.area === name && placementVisibleNow(placement.placementId));
     const trips = placements.reduce((sum, placement) => sum + excTotal(entries.value[slotKeyOf(placement)]), 0);
     const worst = placements.some((placement) => placement.status === "alert")
       ? "alert"
@@ -460,10 +462,13 @@ const pickExcavator = async (placement, code) => {
   await reassignPlacementExcavator(placement.placementId, target.uid);
 };
 
-// "+ Add excavator" places the first available unit (one not already in this pit)
-// into the selected pit as a fresh, blank row. The same unit can also sit in other
-// pits, so adding here never pulls it out of another pit.
-const assignableExcavators = computed(() => [...availableExcavatorCodes.value].sort((a, b) => a.localeCompare(b)));
+// "+ Add excavator" puts a fresh, blank row into the selected pit for THIS hour. It
+// offers the first unit not already shown this hour (so it never double-adds the same
+// one into the same hour); change the unit afterwards via the row's EXCAVATOR cell.
+const shownExcavatorNamesNow = computed(() => new Set(detailRows.value.map((placement) => placement.name)));
+const assignableExcavators = computed(() =>
+  availableExcavatorCodes.value.filter((name) => !shownExcavatorNamesNow.value.has(name)).sort((a, b) => a.localeCompare(b)),
+);
 const addExcavator = async () => {
   const code = assignableExcavators.value[0];
   if (!code) return;
@@ -471,9 +476,19 @@ const addExcavator = async () => {
   if (target) await addAreaExcavator(selectedArea.value, target.uid);
 };
 
-// Remove this placement from THIS hour onward (within this shift): earlier hours
-// keep the excavator and all their data. To bring it back, "+ Add excavator" adds
-// a fresh row. Blank, never-used rows are still fully removed via clearEmptyExcavators.
+// Open the trips modal for a row. A carried-forward row (shown because the PREVIOUS
+// hour had data) has no entry for this hour yet, so seed a blank draft first — that
+// gives the modal something to render and starts this hour's trips at empty.
+const openTrips = (placement) => {
+  const entry = entries.value[slotKeyOf(placement)];
+  if (!entry || entry.rows.length === 0) addEntryRow(placement.placementId);
+  openPlacementId.value = placement.placementId;
+};
+
+// Remove this placement's row from THIS hour onward (within the day): clears its
+// trips / RL / note for this hour and stops the forward carry from here, so the
+// carried-empty hours after it disappear too. Earlier hours — and any later hour that
+// has its own keyed data — are untouched. Re-add via "+ Add excavator".
 const deleteExc = async (placement) => {
   await removePlacementFromHour(placement.placementId);
   if (openPlacementId.value === placement.placementId) openPlacementId.value = null;
@@ -938,7 +953,7 @@ onUnmounted(() => {
                 <span class="exc-trip" :class="{ zero: excTotal(entries[slotKeyOf(exc)]) === 0 }">{{ excTotal(entries[slotKeyOf(exc)]) }}</span>
               </div>
               <div class="exc-cell">
-                <button class="exc-enter-btn" type="button" @click="openPlacementId = exc.placementId">Enter trips ▸</button>
+                <button class="exc-enter-btn" type="button" @click="openTrips(exc)">Enter trips ▸</button>
               </div>
               <div class="exc-cell">
                 <button class="gt-del" type="button" aria-label="Remove this excavator from the pit" title="Remove this excavator from the pit" @click="deleteExc(exc)">x</button>
