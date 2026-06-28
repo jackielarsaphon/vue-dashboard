@@ -34,6 +34,8 @@ const {
   removeAreaExcavatorPlacement,
   placementNoteFor,
   setPlacementNote,
+  placementRlFor,
+  setPlacementRl,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,
@@ -903,8 +905,8 @@ onUnmounted(() => {
                   class="exc-mini-input"
                   type="number"
                   min="0"
-                  :value="exc.rl"
-                  @change="setExc(exc, { rl: $event.target.value })"
+                  :value="placementRlFor(exc.placementId)"
+                  @change="setPlacementRl(exc.placementId, $event.target.value)"
                 />
               </div>
               <div class="exc-cell">

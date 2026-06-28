@@ -150,8 +150,19 @@ const draftRowsByKey = ref({});
 // Per-hour Production notes (public.placement_notes), keyed
 // "date_shiftType_hour" -> { [placementId]: note }.
 const notesByKey = ref({});
+// Per-hour RL / bench level (public.placement_rl), same keying ->
+// { [placementId]: rl_meters }. Like notes, RL is hour-scoped so editing this
+// hour never rewrites earlier hours; a new hour carries forward the latest value.
+const rlByKey = ref({});
 
 const currentKey = computed(() => keyFor(selection.date, selection.shiftType, selection.hour));
+
+// Operational-day hour order (Day 06→18 then Night 19→05), used to find the most
+// recent earlier hour when carrying an RL value forward into a fresh hour.
+const RL_SLOT_ORDER = [
+  ...[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((h) => ["Day", h]),
+  ...[19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5].map((h) => ["Night", h]),
+];
 
 const findShiftIds = async (date) => {
   const { data, error } = await supabase.from("shifts").select("id, shift_type").eq("shift_date", date);
@@ -327,9 +338,27 @@ const fetchDateEntries = async (date) => {
     }
   }
 
+  // Per-hour RL / bench level for the date.
+  const newRl = {};
+  if (shiftIds.length) {
+    const { data: rlRows, error: rlError } = await supabase
+      .from("placement_rl")
+      .select("placement_id, shift_id, log_hour, rl_meters")
+      .in("shift_id", shiftIds);
+    if (!rlError && rlRows) {
+      rlRows.forEach((row) => {
+        const shiftType = shiftTypeById[row.shift_id];
+        if (!shiftType) return;
+        const key = keyFor(date, shiftType, row.log_hour);
+        (newRl[key] = newRl[key] || {})[row.placement_id] = row.rl_meters;
+      });
+    }
+  }
+
   entriesByKey.value = newEntries;
   draftRowsByKey.value = {};
   notesByKey.value = newNotes;
+  rlByKey.value = newRl;
 };
 
 watch(() => selection.date, (date) => fetchDateEntries(date), { immediate: true });
@@ -819,6 +848,56 @@ const setPlacementNote = async (placementId, value) => {
   );
 };
 
+// Per-hour RL for a placement at the current (date, shift, hour). If this hour has
+// no value of its own, carry forward the most recent EARLIER hour's RL (so a new
+// hour shows the latest reading), falling back to the placement's seed rl_meters.
+const placementRlFor = (placementId) => {
+  const exact = rlByKey.value[currentKey.value]?.[placementId];
+  if (exact !== undefined && exact !== null) return exact;
+  const idx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
+  for (let i = idx - 1; i >= 0; i -= 1) {
+    const [st, h] = RL_SLOT_ORDER[i];
+    const v = rlByKey.value[keyFor(selection.date, st, h)]?.[placementId];
+    if (v !== undefined && v !== null) return v;
+  }
+  const placement = areaExcavators.value.find((p) => p.placementId === placementId);
+  return placement?.rl ?? "";
+};
+
+// Set this hour's RL only (never touches earlier hours or the shared seed value).
+// Blank / non-numeric removes this hour's override, so it carries forward again.
+const setPlacementRl = async (placementId, value) => {
+  const raw = value === "" || value == null ? null : Number(value);
+  const rl = raw != null && Number.isFinite(raw) ? raw : null;
+  const key = currentKey.value;
+  const next = { ...rlByKey.value };
+  if (rl == null) {
+    if (next[key]) {
+      const inner = { ...next[key] };
+      delete inner[placementId];
+      next[key] = inner;
+    }
+  } else {
+    next[key] = { ...(next[key] || {}), [placementId]: rl };
+  }
+  rlByKey.value = next;
+  const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
+  if (!shiftId) return;
+  if (rl == null) {
+    await supabase
+      .from("placement_rl")
+      .delete()
+      .eq("placement_id", placementId)
+      .eq("shift_id", shiftId)
+      .eq("log_hour", selection.hour);
+    return;
+  }
+  await supabase.from("placement_rl").upsert(
+    { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, rl_meters: rl },
+    { onConflict: "placement_id,shift_id,log_hour" },
+  );
+};
+
 export const useEntryStore = () => ({
   areas,
   dumpingAreaCodes,
@@ -838,6 +917,8 @@ export const useEntryStore = () => ({
   removeAreaExcavatorPlacement,
   placementNoteFor,
   setPlacementNote,
+  placementRlFor,
+  setPlacementRl,
   removePlacementTripsForDate,
   addEntryRow,
   removeEntryRow,
