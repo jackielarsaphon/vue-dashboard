@@ -540,7 +540,7 @@ const areaBars = computed(() => {
                 v-if="bar.ore > 0 && bar.oreH > 12"
                 :x="bar.x + bar.bw / 2"
                 :y="bar.baseY - bar.softH - bar.oreH / 2 + 4"
-                class="seg-label mono"
+                class="seg-label mono on-day"
                 text-anchor="middle"
               >
                 {{ bar.ore }}
