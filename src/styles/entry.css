@@ -832,7 +832,7 @@
 .exc-list { display: flex; flex-direction: column; overflow-x: auto; }
 .exc-row {
   display: grid;
-  grid-template-columns: minmax(118px, 1.1fr) 72px 64px minmax(130px, 1.6fr) 52px 108px 28px;
+  grid-template-columns: minmax(118px, 1.1fr) 72px 92px minmax(130px, 1.6fr) 52px 108px 28px;
   align-items: center;
   gap: 9px;
   padding: 8px 4px;
