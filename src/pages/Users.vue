@@ -8,6 +8,10 @@ import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
 import TweakColor from "../components/common/TweakColor.vue";
 
+// When rendered as a tab inside the Settings page, hide the page's own TopBar
+// and full-page shell so it nests cleanly under the Settings TopBar.
+defineProps({ embedded: { type: Boolean, default: false } });
+
 const { users, loading, error, activeCount, loadUsers, addUser, updateUser, removeUser } = useUsers();
 
 const roles = ["admin", "manager"];
@@ -124,8 +128,8 @@ const deleteUser = async (item) => {
 </script>
 
 <template>
-  <div class="entry-dash mining-page users-page">
-    <TopBar subtitle="Employee login" />
+  <div :class="embedded ? 'page-embed users-page' : 'entry-dash mining-page users-page'">
+    <TopBar v-if="!embedded" subtitle="Employee login" />
 
     <section class="mining-hero users-hero">
       <div>

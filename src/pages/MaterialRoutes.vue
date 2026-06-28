@@ -8,6 +8,10 @@ import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
 import TweakColor from "../components/common/TweakColor.vue";
 
+// When rendered as a tab inside the Settings page, hide the page's own TopBar
+// and full-page shell so it nests cleanly under the Settings TopBar.
+defineProps({ embedded: { type: Boolean, default: false } });
+
 const { routes, addRoute, updateRoute, removeRoute } = useMaterialRoutes();
 
 const [t, setTweak] = useTweaks({
@@ -83,8 +87,8 @@ const deleteRoute = (route) => {
 </script>
 
 <template>
-  <div class="entry-dash routes-page">
-    <TopBar subtitle="Material routes" />
+  <div :class="embedded ? 'page-embed' : 'entry-dash routes-page'">
+    <TopBar v-if="!embedded" subtitle="Material routes" />
 
     <section class="routes-hero panel">
       <div class="routes-hero-text">

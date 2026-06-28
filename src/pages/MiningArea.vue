@@ -8,6 +8,10 @@ import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
 import TweakColor from "../components/common/TweakColor.vue";
 
+// When rendered as a tab inside the Settings page, hide the page's own TopBar
+// and full-page shell so it nests cleanly under the Settings TopBar.
+defineProps({ embedded: { type: Boolean, default: false } });
+
 const { areas, addArea, updateArea, removeArea } = useMiningAreas();
 const draftArea = ref("");
 const draftInput = ref(null);
@@ -84,8 +88,8 @@ const deleteArea = (area) => {
 </script>
 
 <template>
-  <div class="entry-dash mining-page">
-    <TopBar subtitle="Mining data master" />
+  <div :class="embedded ? 'page-embed' : 'entry-dash mining-page'">
+    <TopBar v-if="!embedded" subtitle="Mining data master" />
 
     <section class="mining-hero">
       <div>

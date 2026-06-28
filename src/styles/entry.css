@@ -1289,6 +1289,41 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
 .mining-page {
   min-height: 100vh;
 }
+
+/* Settings page: one TopBar, a tab bar, then the active master-data page
+   rendered embedded (no shell of its own). */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.settings-tabs button {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--ink-2);
+  background: transparent;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 6px;
+}
+.settings-tabs button:hover { color: var(--ink); }
+.settings-tabs button.on { background: var(--accent); color: #1a1206; font-weight: 600; }
+
+/* A master-data page rendered as a Settings tab: stack its sections without
+   the full-page shell (no extra 100vh / background / padding). */
+.page-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+:root[data-density="regular"] .page-embed { gap: 14px; }
 .mining-hero {
   background: var(--panel);
   border: 1px solid var(--line);

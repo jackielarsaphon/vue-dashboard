@@ -4,12 +4,7 @@ import Login from "../pages/Login.vue";
 import FleetOverview from "../pages/FleetOverview.vue";
 import AreaProduction from "../pages/AreaProduction.vue";
 import DataEntry from "../pages/DataEntry.vue";
-import MiningArea from "../pages/MiningArea.vue";
-import MaterialRoutes from "../pages/MaterialRoutes.vue";
-import Excavator from "../pages/Excavator.vue";
-import DumpModel from "../pages/DumpModel.vue";
-import DumpLocation from "../pages/DumpLocation.vue";
-import Users from "../pages/Users.vue";
+import Settings from "../pages/Settings.vue";
 
 // Hash history (not server history) since this app is mounted as a widget via
 // mountProductionDashboard(), not necessarily served with SPA fallback routing.
@@ -21,12 +16,14 @@ const router = createRouter({
     { path: "/fleet", name: "fleet", component: FleetOverview },
     { path: "/area", name: "area", component: AreaProduction },
     { path: "/entry", name: "entry", component: DataEntry, meta: { adminOnly: true } },
-    { path: "/mining", name: "mining", component: MiningArea, meta: { adminOnly: true } },
-    { path: "/material-routes", name: "materialroutes", component: MaterialRoutes, meta: { adminOnly: true } },
-    { path: "/excavator", name: "excavator", component: Excavator, meta: { adminOnly: true } },
-    { path: "/dumpmodel", name: "dumpmodel", component: DumpModel, meta: { adminOnly: true } },
-    { path: "/location", name: "location", component: DumpLocation, meta: { adminOnly: true } },
-    { path: "/users", name: "users", component: Users, meta: { adminOnly: true } },
+    { path: "/settings", name: "settings", component: Settings, meta: { adminOnly: true } },
+    // Old per-page links now live as tabs under Settings — keep them working.
+    { path: "/mining", redirect: "/settings?tab=mining" },
+    { path: "/material-routes", redirect: "/settings?tab=routes" },
+    { path: "/excavator", redirect: "/settings?tab=excavator" },
+    { path: "/dumpmodel", redirect: "/settings?tab=dumpmodel" },
+    { path: "/location", redirect: "/settings?tab=location" },
+    { path: "/users", redirect: "/settings?tab=users" },
     { path: "/:pathMatch(.*)*", redirect: "/fleet" },
   ],
 });

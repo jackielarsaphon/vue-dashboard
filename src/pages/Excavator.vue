@@ -8,6 +8,10 @@ import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
 import TweakColor from "../components/common/TweakColor.vue";
 
+// When rendered as a tab inside the Settings page, hide the page's own TopBar
+// and full-page shell so it nests cleanly under the Settings TopBar.
+defineProps({ embedded: { type: Boolean, default: false } });
+
 const store = useExcavatorsStore();
 
 const [t, setTweak] = useTweaks({
@@ -87,8 +91,8 @@ const removeRow = async (row) => {
 </script>
 
 <template>
-  <div class="entry-dash mining-page">
-    <TopBar subtitle="Excavator master" />
+  <div :class="embedded ? 'page-embed' : 'entry-dash mining-page'">
+    <TopBar v-if="!embedded" subtitle="Excavator master" />
 
     <section class="mining-hero">
       <div>

@@ -162,23 +162,8 @@ const onHourChange = (event) => {
       <router-link v-if="isAdmin" to="/entry" custom v-slot="{ navigate }">
         <button :class="{ on: route.name === 'entry' }" type="button" @click="navigate">Data entry</button>
       </router-link>
-      <router-link v-if="isAdmin" to="/mining" custom v-slot="{ navigate }">
-        <button :class="{ on: route.name === 'mining' }" type="button" @click="navigate">Mining data</button>
-      </router-link>
-      <router-link v-if="isAdmin" to="/material-routes" custom v-slot="{ navigate }">
-        <button :class="{ on: route.name === 'materialroutes' }" type="button" @click="navigate">Material routes</button>
-      </router-link>
-      <router-link v-if="isAdmin" to="/excavator" custom v-slot="{ navigate }">
-        <button :class="{ on: route.name === 'excavator' }" type="button" @click="navigate">Excavator</button>
-      </router-link>
-      <router-link v-if="isAdmin" to="/dumpmodel" custom v-slot="{ navigate }">
-        <button :class="{ on: route.name === 'dumpmodel' }" type="button" @click="navigate">Dump model</button>
-      </router-link>
-      <router-link v-if="isAdmin" to="/location" custom v-slot="{ navigate }">
-        <button :class="{ on: route.name === 'location' }" type="button" @click="navigate">Locations</button>
-      </router-link>
-      <router-link v-if="isAdmin" to="/users" custom v-slot="{ navigate }">
-        <button :class="{ on: route.name === 'users' }" type="button" @click="navigate">Users</button>
+      <router-link v-if="isAdmin" to="/settings" custom v-slot="{ navigate }">
+        <button :class="{ on: route.name === 'settings' }" type="button" @click="navigate">Settings</button>
       </router-link>
     </nav>
 
