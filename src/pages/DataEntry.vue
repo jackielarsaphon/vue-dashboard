@@ -36,6 +36,8 @@ const {
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
+  isPlacementRemovedNow,
+  removePlacementFromHour,
   addEntryRow,
   removeEntryRow,
   updateEntryRow,
@@ -288,7 +290,9 @@ const selectedArea = computed(() => (areaTabs.value.includes(area.value) ? area.
 const selectedIndex = computed(() => Math.max(0, areaTabs.value.indexOf(selectedArea.value)));
 // Data entry rows = the excavator placements in the selected pit (one row per
 // placement). The same excavator can also be placed in other pits.
-const detailRows = computed(() => areaExcavators.value.filter((placement) => placement.area === selectedArea.value));
+const detailRows = computed(() =>
+  areaExcavators.value.filter((placement) => placement.area === selectedArea.value && !isPlacementRemovedNow(placement.placementId)),
+);
 const detailTrips = computed(() => detailRows.value.reduce((sum, placement) => sum + excTotal(entries.value[slotKeyOf(placement)]), 0));
 
 // EXCAVATOR cell options: every registered unit. Duplicates are allowed now — the
@@ -455,11 +459,11 @@ const addExcavator = async () => {
   if (target) await addAreaExcavator(selectedArea.value, target.uid);
 };
 
-// Remove this placement from the pit: deletes ALL its trips and the placement row
-// from the database (removeAreaExcavatorPlacement). Other pits / other rows of the
-// same excavator are untouched.
+// Remove this placement from THIS hour onward (within this shift): earlier hours
+// keep the excavator and all their data. To bring it back, "+ Add excavator" adds
+// a fresh row. Blank, never-used rows are still fully removed via clearEmptyExcavators.
 const deleteExc = async (placement) => {
-  await removeAreaExcavatorPlacement(placement.placementId);
+  await removePlacementFromHour(placement.placementId);
   if (openPlacementId.value === placement.placementId) openPlacementId.value = null;
 };
 
