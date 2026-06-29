@@ -15,6 +15,19 @@ import TweakSelect from "../components/common/TweakSelect.vue";
 const fmt = (n) => Math.round(Number(n)).toLocaleString("en-US");
 const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
 
+// Status of an area vs its full-day plan, used for both the per-card colour and
+// the "on plan / at risk / behind" board tally:
+//   • on plan  (ok)    — actual ≥ 100% of plan, OR there's no plan to miss (≤ 0)
+//   • at risk  (warn)  — 85–99% of plan
+//   • behind   (alert) — < 85% of plan
+const statusFor = (actual, target) => {
+  if (target <= 0) return "ok";
+  const p = (actual / target) * 100;
+  if (p >= 100) return "ok";
+  if (p >= 85) return "warn";
+  return "alert";
+};
+
 const [t, setTweak] = useTweaks({
   accent: "#d99a00",
   density: "compact",
@@ -119,10 +132,7 @@ const worstArea = computed(
 const statusCounts = computed(() => {
   const counts = { ok: 0, warn: 0, alert: 0 };
   areaSeries.value.forEach((series) => {
-    const p = pct(series.actual.at(-1), series.target);
-    if (p >= 100) counts.ok += 1;
-    else if (p >= 85) counts.warn += 1;
-    else counts.alert += 1;
+    counts[statusFor(series.actual.at(-1), series.target)] += 1;
   });
   return counts;
 });
@@ -148,9 +158,10 @@ const areaCards = computed(() => {
     const planCum = Array.from({ length: n + 1 }, (_, i) => (series.target / n) * i);
     const actualCum = series.actual;
     const finalActual = actualCum.at(-1);
-    const cardAchievement = pct(finalActual, series.target);
+    // No plan (target ≤ 0) can't be measured as a %, so show it as 100% on-plan.
+    const cardAchievement = series.target > 0 ? pct(finalActual, series.target) : 100;
     const delta = finalActual - series.target;
-    const status = cardAchievement >= 100 ? "ok" : cardAchievement >= 85 ? "warn" : "alert";
+    const status = statusFor(finalActual, series.target);
     const W = 260;
     const H = 56;
     const max = Math.max(...planCum, ...actualCum) * 1.05 || 1;

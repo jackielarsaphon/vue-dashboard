@@ -11,6 +11,7 @@ import { useUsers } from "../composables/useUsers.js";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
 import SearchSelect from "../components/common/SearchSelect.vue";
+import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -173,13 +174,19 @@ const closePitDropdown = () => {
   }, 120);
 };
 
-const deleteSelectedPit = () => {
+// Deleting a pit is destructive (drops its Waste/Ore plan), so confirm first via
+// a themed dialog. The button opens it; performDeletePit does the actual removal.
+const confirmDeleteOpen = ref(false);
+const requestDeletePit = () => {
+  if (selectedPitName.value) confirmDeleteOpen.value = true;
+};
+const performDeletePit = () => {
+  confirmDeleteOpen.value = false;
   if (!selectedPitName.value) return;
-  const nextPits = pits.value.filter((pit) => pit.name !== selectedPitName.value);
   const removed = selectedPitName.value;
-  pits.value = nextPits;
+  pits.value = pits.value.filter((pit) => pit.name !== removed);
   delete pitAmounts.value[removed];
-  selectedPitName.value = nextPits[0]?.name ?? "";
+  selectedPitName.value = pits.value[0]?.name ?? "";
   removePlan(removed);
 };
 
@@ -754,7 +761,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="pit-toolbar-actions">
-          <button class="pit-delete-btn" type="button" :disabled="!selectedPit" @click="deleteSelectedPit">x Delete current pit</button>
+          <button class="pit-delete-btn" type="button" :disabled="!selectedPit" @click="requestDeletePit">x Delete current pit</button>
         </div>
       </div>
 
@@ -1118,6 +1125,17 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="confirmDeleteOpen"
+      title="Delete plan source?"
+      :message="`Remove &quot;${selectedPitName}&quot; and its Waste/Ore plan?`"
+      confirm-label="Delete"
+      cancel-label="Cancel"
+      danger
+      @confirm="performDeletePit"
+      @cancel="confirmDeleteOpen = false"
+    />
 
     <TweaksPanel>
       <TweakSection label="Theme" />
