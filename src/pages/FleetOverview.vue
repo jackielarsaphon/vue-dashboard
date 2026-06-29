@@ -109,6 +109,12 @@ const placementsByExcavator = computed(() => {
   return map;
 });
 
+// Pits the daily Plan Production recognises (production_plans pattern codes). The
+// Area cell only surfaces these, so an excavator that also hauled in an off-plan pit
+// doesn't show that pit as a second area chip next to its planned one — keeping Area
+// aligned with the plan instead of joining every pit it touched ("NLU03A, TKS01A").
+const planPits = computed(() => new Set(Object.keys(getDatePlans(selection.date))));
+
 // Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
 // and the "BCM by hour" chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
@@ -150,6 +156,9 @@ const excRows = computed(() =>
       exc: excavator.name,
       trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
       area: Array.from(areaSet)
+        // Keep only pits the plan recognises; on a day with no plan at all, fall
+        // back to showing every pit so Area isn't blanked out across the board.
+        .filter((code) => planPits.value.size === 0 || planPits.value.has(code))
         .sort((a, b) => a.localeCompare(b))
         .join(", "),
       status,
