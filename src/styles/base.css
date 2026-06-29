@@ -536,6 +536,13 @@ table.data tfoot td {
 .sf-v.warn { color: var(--warn); }
 
 .chart { width: 100%; height: auto; display: block; }
+/* Production by shift - area: columns are a fixed width (set inline per pit count),
+   so the chart grows along X and scrolls horizontally once it outgrows the panel.
+   min-width keeps a few pits stretched to fill the panel instead of leaving a gap. */
+.shift-area-scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+.shift-area-scroll::-webkit-scrollbar { height: 6px; }
+.shift-area-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.shift-area-chart { min-width: 100%; max-width: none; }
 .chart .grid { stroke: var(--grid); stroke-width: 1; }
 .chart .axis { fill: var(--ink-3); font-size: 9px; font-family: var(--font-mono); }
 .chart .axis.tiny { font-size: 8px; }

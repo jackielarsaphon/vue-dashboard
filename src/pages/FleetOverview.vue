@@ -288,7 +288,13 @@ const areaShiftMax = computed(() => Math.max(1, ...areasByShift.value.map((item)
 // (top), with a cream Plan column behind reaching the pit's Plan Production total.
 // padL leaves room for the y-axis labels, which grow to 6–7 digits (e.g. 30,000)
 // once the bars/plan use real tonnes — too small a pad clipped them at the edge.
-const shiftAreaChart = { W: 560, H: 300, padL: 54, padR: 10, padT: 20, padB: 34 };
+const shiftAreaChart = { H: 300, padL: 54, padR: 10, padT: 20, padB: 34 };
+// Each pit gets a fixed-width column, so the chart grows along X as pits are added
+// (and scrolls horizontally once it outgrows the panel) instead of squeezing ever-
+// thinner bars into a fixed width. CSS min-width:100% still lets a few pits stretch
+// to fill the panel; beyond that the column width is what drives the scroll.
+const SHIFT_AREA_COL_W = 92;
+const shiftAreaW = computed(() => shiftAreaChart.padL + shiftAreaChart.padR + Math.max(1, areasByShift.value.length) * SHIFT_AREA_COL_W);
 const shiftAreaYMax = computed(() => {
   const max = Math.max(1, ...areasByShift.value.map((item) => Math.max(item.day + item.night, item.plan)));
   const step = max > 20000 ? 10000 : max > 4000 ? 5000 : max > 2000 ? 1000 : 500;
@@ -300,7 +306,8 @@ const shiftAreaY = (value) => {
   return padT + (H - padT - padB) * (1 - value / shiftAreaYMax.value);
 };
 const shiftAreaBars = computed(() => {
-  const { W, padL, padR } = shiftAreaChart;
+  const { padL, padR } = shiftAreaChart;
+  const W = shiftAreaW.value;
   const cw = (W - padL - padR) / Math.max(1, areasByShift.value.length);
   const bw = cw * 0.64;
   const baseY = shiftAreaY(0);
@@ -329,7 +336,8 @@ const toggleShiftArea = (area) => {
 const shiftAreaTip = computed(() => {
   const bar = shiftAreaBars.value.find((item) => item.area === activeShiftArea.value);
   if (!bar) return null;
-  const { W, padR, padL } = shiftAreaChart;
+  const { padR, padL } = shiftAreaChart;
+  const W = shiftAreaW.value;
   const tw = 116;
   const th = 78;
   const x = Math.min(Math.max(bar.cx - tw / 2, padL), W - padR - tw);
@@ -694,9 +702,10 @@ const areaBars = computed(() => {
                 <span class="lg-dot ml" style="background: var(--night)" />Night
               </span>
             </div>
-            <svg :viewBox="`0 0 ${shiftAreaChart.W} ${shiftAreaChart.H}`" class="chart">
+            <div class="shift-area-scroll">
+            <svg :viewBox="`0 0 ${shiftAreaW} ${shiftAreaChart.H}`" :style="{ width: shiftAreaW + 'px' }" class="chart shift-area-chart">
               <g v-for="tick in shiftAreaTicks" :key="tick">
-                <line :x1="shiftAreaChart.padL" :x2="shiftAreaChart.W - shiftAreaChart.padR" :y1="shiftAreaY(tick)" :y2="shiftAreaY(tick)" class="grid" />
+                <line :x1="shiftAreaChart.padL" :x2="shiftAreaW - shiftAreaChart.padR" :y1="shiftAreaY(tick)" :y2="shiftAreaY(tick)" class="grid" />
                 <text :x="shiftAreaChart.padL - 7" :y="shiftAreaY(tick) + 3" class="axis mono tiny" text-anchor="end">{{ fmt(tick) }}</text>
               </g>
               <g
@@ -734,6 +743,7 @@ const areaBars = computed(() => {
                 <text :x="shiftAreaTip.x + shiftAreaTip.tw - 8" :y="shiftAreaTip.y + 64" class="tip-val mono strong" text-anchor="end">{{ fmt(shiftAreaTip.sum) }}</text>
               </g>
             </svg>
+            </div>
           </div>
 
           <div class="shift-divider" />
