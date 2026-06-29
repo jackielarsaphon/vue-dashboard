@@ -7,6 +7,7 @@ import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
+import { useUsers } from "../composables/useUsers.js";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
 import SearchSelect from "../components/common/SearchSelect.vue";
@@ -37,6 +38,7 @@ const {
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
+  placementEditorFor,
   placementVisibleNow,
   removePlacementFromHour,
   addEntryRow,
@@ -48,6 +50,18 @@ const {
 // A Data entry row is one placement; its trips live under the slot key = its
 // placement id in `entries`.
 const slotKeyOf = (placement) => placement.placementId;
+
+// Map a production entry's created_by (users.id) to a display name, so each row
+// can show who keyed its trips for the current hour.
+const { users } = useUsers();
+const userNameById = computed(() => Object.fromEntries(users.value.map((u) => [u.id, u.name || u.username])));
+const enteredByName = (placement) => {
+  // Prefer the placement-level editor (covers add + trucks/RL/note, shows before
+  // any trips); fall back to the trip entry's created_by (works even before the
+  // placement_editors table is migrated).
+  const id = placementEditorFor(placement.placementId) || entries.value[slotKeyOf(placement)]?.createdBy;
+  return id ? userNameById.value[id] || "" : "";
+};
 
 const { getDatePlans, savePlan, removePlan } = usePlanProduction();
 
@@ -927,14 +941,17 @@ onUnmounted(() => {
 
             <div v-for="exc in detailRows" :key="exc.placementId" class="exc-row">
               <div class="exc-cell exc-name">
-                <StatusDot :status="rowStatus(exc)" />
-                <SearchSelect
-                  :model-value="exc.name"
-                  :options="rowExcavatorOptions(exc)"
-                  placeholder="Search excavator"
-                  empty-text="No excavator available"
-                  @change="pickExcavator(exc, $event)"
-                />
+                <div class="exc-name-line">
+                  <StatusDot :status="rowStatus(exc)" />
+                  <SearchSelect
+                    :model-value="exc.name"
+                    :options="rowExcavatorOptions(exc)"
+                    placeholder="Search excavator"
+                    empty-text="No excavator available"
+                    @change="pickExcavator(exc, $event)"
+                  />
+                </div>
+                <span v-if="enteredByName(exc)" class="exc-by" :title="`Entered by ${enteredByName(exc)}`">by {{ enteredByName(exc) }}</span>
               </div>
               <div class="exc-cell num">
                 <input

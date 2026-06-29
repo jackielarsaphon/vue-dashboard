@@ -833,13 +833,15 @@
 .exc-row {
   display: grid;
   grid-template-columns: minmax(118px, 1.1fr) 72px 92px minmax(130px, 1.6fr) 52px 108px 28px;
-  align-items: center;
+  /* Top-align every cell so all the input boxes line up; the "by <name>" line
+     then hangs below the excavator box without pushing it out of line. */
+  align-items: start;
   gap: 9px;
   padding: 8px 4px;
   min-width: 600px;
   border-bottom: 1px solid var(--line-soft);
 }
-.exc-row.head { padding-top: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.exc-row.head { padding-top: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); align-items: end; }
 .exc-row.head .exc-cell {
   font-size: 10px;
   letter-spacing: 0.12em;
@@ -849,7 +851,19 @@
 }
 .exc-cell { min-width: 0; }
 .exc-cell.num { text-align: right; }
-.exc-name { display: flex; align-items: center; gap: 8px; }
+.exc-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.exc-name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.exc-name-line .ss-wrap { flex: 1; min-width: 0; }
+.exc-by {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Sit under the excavator box (past the 8px dot + 8px gap). */
+  padding-left: 16px;
+}
 .exc-name-input {
   background: transparent;
   color: var(--ink);

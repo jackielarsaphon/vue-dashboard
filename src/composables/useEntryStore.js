@@ -1,6 +1,8 @@
 import { computed, ref, watch } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
 import { useShiftSelection } from "./useShiftSelection.js";
+import { useAuth } from "./useAuth.js";
+import { useUsers } from "./useUsers.js";
 import { useKpiTargets } from "./useKpiTargets.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
 import { useAreaExcavatorsStore } from "../stores/areaExcavatorsStore";
@@ -41,6 +43,30 @@ const slotStart = (date, shiftType, hour) => {
 };
 const isFutureSlot = (date, shiftType, hour) => slotStart(date, shiftType, hour).getTime() > Date.now();
 const codeOf = (list, id) => list.find((item) => item.id === id)?.code;
+
+const { user: authUser } = useAuth();
+const { users: knownUsers } = useUsers();
+// The logged-in user's id to stamp on created_by / edited_by — but ONLY if it
+// still exists in public.users. A stale session (its user since removed/re-seeded)
+// would otherwise violate the foreign key and 409 the whole write (blocking the
+// save). Unknown id → null: the save succeeds, it just records no name. While the
+// users list is still loading we trust the id (don't block).
+const currentUserId = () => {
+  const id = authUser.value?.id ?? null;
+  if (!id) return null;
+  const list = knownUsers.value;
+  if (list.length && !list.some((u) => u.id === id)) return null;
+  return id;
+};
+
+// Once we learn the placement_editors table isn't there yet (migration not run),
+// stop querying / writing it so we don't spam 404s. Resets on page reload.
+let placementEditorsMissing = false;
+const isMissingTableError = (error) =>
+  !!error &&
+  (error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    /could not find the table|does not exist/i.test(error.message || ""));
 
 const excavatorsStore = useExcavatorsStore();
 const areaExcavatorsStore = useAreaExcavatorsStore();
@@ -158,6 +184,10 @@ const rlByKey = ref({});
 // { [placementId]: true }. Removal is hour-scoped: removing a placement affects
 // ONLY that one hour — every other hour (before and after) keeps its data.
 const removedByKey = ref({});
+// Per-hour "who entered/edited this placement" (public.placement_editors), same
+// keying -> { [placementId]: userId }. Stamped on add + every field edit so the
+// "by <name>" label shows the moment data is keyed (last write wins).
+const editorsByKey = ref({});
 
 const currentKey = computed(() => keyFor(selection.date, selection.shiftType, selection.hour));
 
@@ -296,7 +326,7 @@ const fetchDateEntries = async (date) => {
   if (shiftIds.length) {
     const { data, error } = await supabase
       .from("production_entries")
-      .select("log_hour, trips, excavator_id, mining_area_id, placement_id, material_id, dumping_area_id, truck_model_id, shift_id")
+      .select("log_hour, trips, excavator_id, mining_area_id, placement_id, material_id, dumping_area_id, truck_model_id, shift_id, created_by")
       .in("shift_id", shiftIds);
 
     if (!error && data) {
@@ -313,8 +343,12 @@ const fetchDateEntries = async (date) => {
             excavatorId: row.excavator_id,
             areaId: row.mining_area_id,
             area: areaCodeById.value[row.mining_area_id] ?? "",
+            createdBy: row.created_by || null,
             rows: [],
           });
+        // Any non-null creator on the placement's rows identifies who keyed this
+        // excavator's trips for the hour (last write wins if several differ).
+        if (row.created_by) excEntry.createdBy = row.created_by;
 
         const materialCode = codeOf(materialsStore.items.value, row.material_id);
         const dumpCode = codeOf(dumpingAreasStore.items.value, row.dumping_area_id);
@@ -381,11 +415,33 @@ const fetchDateEntries = async (date) => {
     }
   }
 
+  // Per-hour editor (who keyed each placement). Best-effort: if the
+  // placement_editors table hasn't been created yet, this query errors and we
+  // simply fall back to production_entries.created_by for the display.
+  const newEditors = {};
+  if (shiftIds.length && !placementEditorsMissing) {
+    const { data: editors, error: editorsError } = await supabase
+      .from("placement_editors")
+      .select("placement_id, shift_id, log_hour, edited_by")
+      .in("shift_id", shiftIds);
+    if (isMissingTableError(editorsError)) {
+      placementEditorsMissing = true;
+    } else if (!editorsError && editors) {
+      editors.forEach((row) => {
+        const shiftType = shiftTypeById[row.shift_id];
+        if (!shiftType) return;
+        const key = keyFor(date, shiftType, row.log_hour);
+        (newEditors[key] = newEditors[key] || {})[row.placement_id] = row.edited_by || null;
+      });
+    }
+  }
+
   entriesByKey.value = newEntries;
   draftRowsByKey.value = {};
   notesByKey.value = newNotes;
   rlByKey.value = newRl;
   removedByKey.value = newRemoved;
+  editorsByKey.value = newEditors;
 };
 
 watch(() => selection.date, (date) => fetchDateEntries(date), { immediate: true });
@@ -428,7 +484,7 @@ const entries = computed(() => {
       areaId = placement?.mining_area_id;
       area = areaCodeById.value[areaId] ?? "";
     }
-    merged[slot] = { placementId, excavatorId, areaId, area, rows: [...(persisted[slot]?.rows || []), ...(drafts[slot] || [])] };
+    merged[slot] = { placementId, excavatorId, areaId, area, createdBy: meta?.createdBy ?? null, rows: [...(persisted[slot]?.rows || []), ...(drafts[slot] || [])] };
   });
   return merged;
 });
@@ -535,6 +591,8 @@ const addAreaExcavator = async (areaCode, excavatorId) => {
   if (!placementId) return;
   // Seed a blank draft trip row so the placement appears in this hour ready for entry.
   addEntryRow(placementId);
+  // Record who added it, so the "by <name>" label shows immediately (before trips).
+  await stampEditor(placementId);
 };
 
 // Edit a placement's per-pit fields (which excavator it is, trucks / RL / note).
@@ -546,6 +604,7 @@ const updateAreaExcavator = async (placementId, patch) => {
   if (patch.notes !== undefined) dbPatch.notes = patch.notes;
   if (patch.status !== undefined) dbPatch.status = patch.status;
   await areaExcavatorsStore.update(placementId, dbPatch);
+  await stampEditor(placementId);
 };
 
 // Change which excavator a row (placement) is, KEEPING its trips: the slot is the
@@ -732,6 +791,7 @@ const updateEntryRow = async (placementId, rowId, patch) => {
             mining_area_id: areaId,
             trips,
             tonnes: trips * tonnesPerTripFor(nextModel),
+            created_by: currentUserId(),
           },
           { onConflict: "shift_id,log_hour,placement_id,material_id,dumping_area_id,truck_model_id" },
         );
@@ -763,6 +823,7 @@ const updateLocalTrip = (placementId, rowId, value) => {
       excavatorId: placement?.excavator_id,
       areaId: placement?.mining_area_id,
       area: areaCodeById.value[placement?.mining_area_id] ?? "",
+      createdBy: null,
       rows: [],
     });
   let row = entry.rows.find((item) => item.id === rowId);
@@ -772,6 +833,9 @@ const updateLocalTrip = (placementId, rowId, value) => {
     entry.rows.push(row);
   }
   row.trips = value;
+  // Stamp the current user locally too, so "by <name>" shows immediately after
+  // keying — without waiting for the next fetch to read created_by back.
+  if (Number(value) > 0) entry.createdBy = currentUserId();
   // Keep the row even when trips hit 0: clearing the field (e.g. to retype a
   // number) deletes the DB entry in setRowTrips but the row stays visible and
   // editable instead of vanishing. Remove a row deliberately via its x button.
@@ -844,9 +908,10 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
   await supabase
     .from("production_entries")
     .upsert(
-      { ...matchKey, excavator_id: excavatorId, mining_area_id: areaId, trips: value, tonnes: value * tonnesPerTripFor(modelCode) },
+      { ...matchKey, excavator_id: excavatorId, mining_area_id: areaId, trips: value, tonnes: value * tonnesPerTripFor(modelCode), created_by: currentUserId() },
       { onConflict: "shift_id,log_hour,placement_id,material_id,dumping_area_id,truck_model_id" },
     );
+  await stampEditor(placementId);
 
   const compositeId = `${materialCode}|${dumpCode}|${modelCode}`;
   if (isDraft) {
@@ -875,6 +940,7 @@ const setPlacementNote = async (placementId, value) => {
   const next = { ...notesByKey.value };
   next[key] = { ...(next[key] || {}), [placementId]: note };
   notesByKey.value = next;
+  await stampEditor(placementId);
   const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
   if (!shiftId) return;
   if (!note.trim()) {
@@ -925,6 +991,7 @@ const setPlacementRl = async (placementId, value) => {
     next[key] = { ...(next[key] || {}), [placementId]: rl };
   }
   rlByKey.value = next;
+  await stampEditor(placementId);
   const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
   if (!shiftId) return;
   if (rl == null) {
@@ -940,6 +1007,40 @@ const setPlacementRl = async (placementId, value) => {
     { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, rl_meters: rl },
     { onConflict: "placement_id,shift_id,log_hour" },
   );
+};
+
+// Who last entered/edited this placement, for the current (date, shift, hour).
+// Carries forward the most recent earlier hour's editor (like RL), so a unit
+// that keeps showing across hours keeps its name. Returns a users.id or "".
+const placementEditorFor = (placementId) => {
+  const exact = editorsByKey.value[currentKey.value]?.[placementId];
+  if (exact) return exact;
+  const idx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
+  for (let i = idx - 1; i >= 0; i -= 1) {
+    const [st, h] = RL_SLOT_ORDER[i];
+    const v = editorsByKey.value[keyFor(selection.date, st, h)]?.[placementId];
+    if (v) return v;
+  }
+  return "";
+};
+
+// Stamp the logged-in user as this placement's editor for the current hour —
+// called on add and on every field edit, so the name shows immediately. Updates
+// the local cache first (instant UI), then upserts placement_editors. No-op when
+// signed out; best-effort if the table doesn't exist yet.
+const stampEditor = async (placementId) => {
+  const editor = currentUserId();
+  if (!placementId || !editor) return;
+  const key = currentKey.value;
+  editorsByKey.value = { ...editorsByKey.value, [key]: { ...(editorsByKey.value[key] || {}), [placementId]: editor } };
+  if (placementEditorsMissing) return; // table not migrated yet — keep the optimistic label only
+  const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
+  if (!shiftId) return;
+  const { error } = await supabase.from("placement_editors").upsert(
+    { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, edited_by: editor, updated_at: new Date().toISOString() },
+    { onConflict: "placement_id,shift_id,log_hour" },
+  );
+  if (isMissingTableError(error)) placementEditorsMissing = true;
 };
 
 // True when a placement was removed in exactly the selected (date, shift, hour) —
@@ -1042,6 +1143,7 @@ export const useEntryStore = () => ({
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
+  placementEditorFor,
   isPlacementRemovedNow,
   placementVisibleNow,
   removePlacementFromHour,
@@ -1053,4 +1155,8 @@ export const useEntryStore = () => ({
   // Persist a production date as a shifts row (used by the Date header step so
   // picking/changing the date is saved to the database immediately).
   ensureShift: (date, shiftType) => getOrCreateShiftId(date, shiftType),
+  // Re-fetch every placement + production entry for the selected date (also
+  // reloads the excavator / area / material stores). Lets a dashboard pick up
+  // rows entered on another device without a full page reload.
+  reload: () => fetchDateEntries(selection.date),
 });

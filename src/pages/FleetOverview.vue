@@ -5,6 +5,7 @@ import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
+import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import html2canvas from "html2canvas";
 import TopBar from "../components/common/TopBar.vue";
 import StatusDot from "../components/common/StatusDot.vue";
@@ -34,9 +35,13 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow } = useEntryStore();
-const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans } = usePlanProduction();
-const { areaTarget } = useAreaTargets();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
+const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
+const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
+
+// Pick up production entered on another device (e.g. a phone) without a manual
+// reload: re-fetch on tab focus / visibility and every 30s.
+useLiveRefresh([reloadEntries, reloadPlans, reloadAreaTargets]);
 
 // Download the whole Fleet overview as one PNG. html2canvas rasterises the live
 // DOM (so theme CSS variables, fonts and layout match the screen), skipping the
