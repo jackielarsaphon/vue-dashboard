@@ -38,7 +38,7 @@ const {
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
-  placementEditorFor,
+  placementEditorsFor,
   placementVisibleNow,
   removePlacementFromHour,
   addEntryRow,
@@ -55,12 +55,16 @@ const slotKeyOf = (placement) => placement.placementId;
 // can show who keyed its trips for the current hour.
 const { users } = useUsers();
 const userNameById = computed(() => Object.fromEntries(users.value.map((u) => [u.id, u.name || u.username])));
-const enteredByName = (placement) => {
-  // Prefer the placement-level editor (covers add + trucks/RL/note, shows before
-  // any trips); fall back to the trip entry's created_by (works even before the
-  // placement_editors table is migrated).
-  const id = placementEditorFor(placement.placementId) || entries.value[slotKeyOf(placement)]?.createdBy;
-  return id ? userNameById.value[id] || "" : "";
+const nameOf = (id) => (id ? userNameById.value[id] || "" : "");
+// Who added (first keyed) and who last edited this row. Falls back to the trip
+// entry's created_by when placement_editors isn't available yet (pre-migration).
+const addedByName = (placement) => {
+  const { addedBy } = placementEditorsFor(placement.placementId);
+  return nameOf(addedBy || entries.value[slotKeyOf(placement)]?.createdBy);
+};
+const editedByName = (placement) => {
+  const { editedBy } = placementEditorsFor(placement.placementId);
+  return nameOf(editedBy || entries.value[slotKeyOf(placement)]?.createdBy);
 };
 
 const { getDatePlans, savePlan, removePlan } = usePlanProduction();
@@ -497,11 +501,18 @@ const addExcavator = async () => {
 };
 
 // Open the trips modal for a row. A carried-forward row (shown because the PREVIOUS
-// hour had data) has no entry for this hour yet, so seed a blank draft first — that
-// gives the modal something to render and starts this hour's trips at empty.
+// hour had data) has no entry for this hour yet, so seed it: carry the most recent
+// earlier hour's rows (material / ore / location / dump model) with Trips reset to 0,
+// else fall back to one default row. (carryForwardRows must run BEFORE the modal sees
+// an entry — pre-adding a blank row here would suppress the carry-forward.)
 const openTrips = (placement) => {
   const entry = entries.value[slotKeyOf(placement)];
-  if (!entry || entry.rows.length === 0) addEntryRow(placement.placementId);
+  if (!entry || entry.rows.length === 0) {
+    if (!carryForwardRows(placement)) {
+      addEntryRow(placement.placementId);
+      defaultRouteFor(placement);
+    }
+  }
   openPlacementId.value = placement.placementId;
 };
 
@@ -951,7 +962,8 @@ onUnmounted(() => {
                     @change="pickExcavator(exc, $event)"
                   />
                 </div>
-                <span v-if="enteredByName(exc)" class="exc-by" :title="`Entered by ${enteredByName(exc)}`">by {{ enteredByName(exc) }}</span>
+                <span v-if="addedByName(exc)" class="exc-by" :title="`Added by ${addedByName(exc)}`">added by {{ addedByName(exc) }}</span>
+                <span v-if="editedByName(exc) && editedByName(exc) !== addedByName(exc)" class="exc-by" :title="`Edited by ${editedByName(exc)}`">edited by {{ editedByName(exc) }}</span>
               </div>
               <div class="exc-cell num">
                 <input

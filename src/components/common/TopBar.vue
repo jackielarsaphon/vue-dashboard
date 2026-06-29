@@ -8,6 +8,9 @@ import { useIsMobile } from "../../composables/useIsMobile.js";
 const { user, logout } = useAuth();
 const userInitial = computed(() => (user.value?.name || user.value?.username || "?").trim().charAt(0).toUpperCase());
 const isAdmin = computed(() => user.value?.role === "admin");
+// User management lives on its own "Manager" page, available to the manager role
+// only (admins don't see it).
+const isManager = computed(() => user.value?.role === "manager");
 // On phones an admin is locked to Data entry, so hide the page navigation
 // (managers keep it — they aren't kiosk-locked).
 const { isMobile } = useIsMobile();
@@ -166,6 +169,9 @@ const onHourChange = (event) => {
       </router-link>
       <router-link v-if="isAdmin" to="/entry" custom v-slot="{ navigate }">
         <button :class="{ on: route.name === 'entry' }" type="button" @click="navigate">Data entry</button>
+      </router-link>
+      <router-link v-if="isManager" to="/manager" custom v-slot="{ navigate }">
+        <button :class="{ on: route.name === 'manager' }" type="button" @click="navigate">User</button>
       </router-link>
       <router-link v-if="isAdmin" to="/settings" custom v-slot="{ navigate }">
         <button :class="{ on: route.name === 'settings' }" type="button" @click="navigate">Settings</button>

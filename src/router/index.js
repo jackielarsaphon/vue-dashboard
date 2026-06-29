@@ -6,6 +6,7 @@ import FleetOverview from "../pages/FleetOverview.vue";
 import AreaProduction from "../pages/AreaProduction.vue";
 import DataEntry from "../pages/DataEntry.vue";
 import Settings from "../pages/Settings.vue";
+import Users from "../pages/Users.vue";
 
 // Hash history (not server history) since this app is mounted as a widget via
 // mountProductionDashboard(), not necessarily served with SPA fallback routing.
@@ -18,13 +19,16 @@ const router = createRouter({
     { path: "/area", name: "area", component: AreaProduction },
     { path: "/entry", name: "entry", component: DataEntry, meta: { adminOnly: true } },
     { path: "/settings", name: "settings", component: Settings, meta: { adminOnly: true } },
+    // Employee logins / Users management — its own page for the manager role
+    // (was an admin-only Settings tab; admins no longer see it).
+    { path: "/manager", name: "manager", component: Users, meta: { managerOnly: true } },
     // Old per-page links now live as tabs under Settings — keep them working.
     { path: "/mining", redirect: "/settings?tab=mining" },
     { path: "/material-routes", redirect: "/settings?tab=routes" },
     { path: "/excavator", redirect: "/settings?tab=excavator" },
     { path: "/dumpmodel", redirect: "/settings?tab=dumpmodel" },
     { path: "/location", redirect: "/settings?tab=location" },
-    { path: "/users", redirect: "/settings?tab=users" },
+    { path: "/users", redirect: "/manager" },
     { path: "/:pathMatch(.*)*", redirect: "/fleet" },
   ],
 });
@@ -32,6 +36,7 @@ const router = createRouter({
 router.beforeEach((to) => {
   const { user } = useAuth();
   const isAdmin = user.value?.role === "admin";
+  const isManager = user.value?.role === "manager";
 
   if (to.meta.public) {
     if (user.value) return { path: "/fleet" };
@@ -40,6 +45,7 @@ router.beforeEach((to) => {
 
   if (!user.value) return { path: "/login" };
   if (to.meta.adminOnly && !isAdmin) return { path: "/fleet" };
+  if (to.meta.managerOnly && !isManager) return { path: "/fleet" };
 
   // On phones the app is a data-entry-only kiosk for admins: every other page
   // redirects to Data entry. (Non-admins keep their normal pages — they can't

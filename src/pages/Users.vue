@@ -129,7 +129,7 @@ const deleteUser = async (item) => {
 
 <template>
   <div :class="embedded ? 'page-embed users-page' : 'entry-dash mining-page users-page'">
-    <TopBar v-if="!embedded" subtitle="Employee login" />
+    <TopBar v-if="!embedded" subtitle="User" />
 
     <section class="mining-hero users-hero">
       <div>

@@ -7,17 +7,16 @@ import MaterialRoutes from "./MaterialRoutes.vue";
 import Excavator from "./Excavator.vue";
 import DumpModel from "./DumpModel.vue";
 import DumpLocation from "./DumpLocation.vue";
-import Users from "./Users.vue";
 
 // Settings groups the master-data pages behind one nav button. Each page is
 // rendered embedded (without its own TopBar / full-page shell) under the tab bar.
+// (Users / employee logins now live on their own "Manager" page, not here.)
 const tabs = [
   { key: "mining", label: "Mining data", comp: MiningArea },
   { key: "routes", label: "Material routes", comp: MaterialRoutes },
   { key: "excavator", label: "Excavator", comp: Excavator },
   { key: "dumpmodel", label: "Dump model", comp: DumpModel },
   { key: "location", label: "Locations", comp: DumpLocation },
-  { key: "users", label: "Users", comp: Users },
 ];
 
 const route = useRoute();

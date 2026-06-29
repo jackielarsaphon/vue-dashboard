@@ -422,7 +422,7 @@ const fetchDateEntries = async (date) => {
   if (shiftIds.length && !placementEditorsMissing) {
     const { data: editors, error: editorsError } = await supabase
       .from("placement_editors")
-      .select("placement_id, shift_id, log_hour, edited_by")
+      .select("placement_id, shift_id, log_hour, created_by, edited_by")
       .in("shift_id", shiftIds);
     if (isMissingTableError(editorsError)) {
       placementEditorsMissing = true;
@@ -431,7 +431,7 @@ const fetchDateEntries = async (date) => {
         const shiftType = shiftTypeById[row.shift_id];
         if (!shiftType) return;
         const key = keyFor(date, shiftType, row.log_hour);
-        (newEditors[key] = newEditors[key] || {})[row.placement_id] = row.edited_by || null;
+        (newEditors[key] = newEditors[key] || {})[row.placement_id] = { addedBy: row.created_by || null, editedBy: row.edited_by || null };
       });
     }
   }
@@ -1009,37 +1009,44 @@ const setPlacementRl = async (placementId, value) => {
   );
 };
 
-// Who last entered/edited this placement, for the current (date, shift, hour).
-// Carries forward the most recent earlier hour's editor (like RL), so a unit
-// that keeps showing across hours keeps its name. Returns a users.id or "".
-const placementEditorFor = (placementId) => {
+// Who added (first keyed) and who last edited this placement, for the current
+// (date, shift, hour). Carries forward the most recent earlier hour's record
+// (like RL), so a unit that keeps showing across hours keeps its names.
+// Returns { addedBy, editedBy } of users.ids (either may be "").
+const placementEditorsFor = (placementId) => {
   const exact = editorsByKey.value[currentKey.value]?.[placementId];
-  if (exact) return exact;
+  if (exact && (exact.addedBy || exact.editedBy)) return exact;
   const idx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
   for (let i = idx - 1; i >= 0; i -= 1) {
     const [st, h] = RL_SLOT_ORDER[i];
     const v = editorsByKey.value[keyFor(selection.date, st, h)]?.[placementId];
-    if (v) return v;
+    if (v && (v.addedBy || v.editedBy)) return v;
   }
-  return "";
+  return { addedBy: "", editedBy: "" };
 };
 
-// Stamp the logged-in user as this placement's editor for the current hour —
-// called on add and on every field edit, so the name shows immediately. Updates
-// the local cache first (instant UI), then upserts placement_editors. No-op when
-// signed out; best-effort if the table doesn't exist yet.
+// Stamp the logged-in user on this placement for the current hour — called on add
+// and on every field edit, so names show immediately. The FIRST stamp records the
+// adder (created_by, never overwritten); every stamp updates the last editor
+// (edited_by). Optimistic local cache first, then a best-effort upsert. No-op when
+// signed out; self-disables if the table isn't migrated yet.
 const stampEditor = async (placementId) => {
   const editor = currentUserId();
   if (!placementId || !editor) return;
   const key = currentKey.value;
-  editorsByKey.value = { ...editorsByKey.value, [key]: { ...(editorsByKey.value[key] || {}), [placementId]: editor } };
+  const prior = editorsByKey.value[key]?.[placementId];
+  const addedBy = prior?.addedBy || editor; // keep the original adder
+  editorsByKey.value = {
+    ...editorsByKey.value,
+    [key]: { ...(editorsByKey.value[key] || {}), [placementId]: { addedBy, editedBy: editor } },
+  };
   if (placementEditorsMissing) return; // table not migrated yet — keep the optimistic label only
   const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
   if (!shiftId) return;
-  const { error } = await supabase.from("placement_editors").upsert(
-    { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, edited_by: editor, updated_at: new Date().toISOString() },
-    { onConflict: "placement_id,shift_id,log_hour" },
-  );
+  const payload = { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, edited_by: editor, updated_at: new Date().toISOString() };
+  // Only set the adder when this row is new, so re-saves don't overwrite it.
+  if (!prior?.addedBy) payload.created_by = editor;
+  const { error } = await supabase.from("placement_editors").upsert(payload, { onConflict: "placement_id,shift_id,log_hour" });
   if (isMissingTableError(error)) placementEditorsMissing = true;
 };
 
@@ -1143,7 +1150,7 @@ export const useEntryStore = () => ({
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
-  placementEditorFor,
+  placementEditorsFor,
   isPlacementRemovedNow,
   placementVisibleNow,
   removePlacementFromHour,
