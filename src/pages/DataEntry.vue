@@ -43,7 +43,6 @@ const {
   removeEntryRow,
   updateEntryRow,
   setRowTrips,
-  setTruckFactor,
 } = useEntryStore();
 
 // A Data entry row is one placement; its trips live under the slot key = its
@@ -604,11 +603,6 @@ const setTrip = async (row, value) => {
   }
 };
 
-// Save the dump model's tonnes/trip factor from the trip grid. The factor is a
-// property of the truck model, so this updates the model master (and every row /
-// dashboard using it), same as editing it on the Dump model page.
-const setFactor = (row, value) => setTruckFactor(row.model, value);
-
 const addModalRow = () => {
   if (!openExc.value) return;
   addEntryRow(openExc.value.placementId);
@@ -1007,7 +1001,7 @@ onUnmounted(() => {
         </div>
 
         <div class="modal-body">
-          <p class="modal-hint">Each row is a material type + destination combination. Enter trip count per truck model; Factor (tonnes/trip, for this week) × Trips = Tonnes. Editing a factor sets it for the selected date's week.</p>
+          <p class="modal-hint">Each row is a material type + destination combination. Enter the trip count per truck model; Factor (tonnes/trip) × Trips = Tonnes. The factor is read-only here — change it on the Dump model page.</p>
           <table class="grid-table">
             <thead>
               <tr>
@@ -1055,17 +1049,8 @@ onUnmounted(() => {
                     @change="setEntryRow(row, { model: $event })"
                   />
                 </td>
-                <td class="gt-trip-cell" data-label="Factor (t/trip)">
-                  <input
-                    class="gt-num"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="43.7"
-                    :value="tonnesPerTripFor(row.model)"
-                    :disabled="!row.model"
-                    @change="setFactor(row, $event.target.value)"
-                  />
+                <td class="gt-trip-cell gt-factor" data-label="Factor (t/trip)" title="Set on the Dump model page">
+                  <span class="gt-factor-val" :class="{ muted: !row.model }">{{ row.model ? tonnesPerTripFor(row.model) : "—" }}</span>
                 </td>
                 <td class="gt-trip-cell" data-label="Trips">
                   <input

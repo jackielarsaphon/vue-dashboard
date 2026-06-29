@@ -1002,6 +1002,16 @@ table.grid-table thead th.th-truck { font-family: var(--font-mono); color: var(-
 }
 .gt-num:focus { outline: none; border-color: var(--accent); background: color-mix(in oklab, var(--accent) 8%, var(--panel-2)); }
 td.gt-trip-cell { text-align: center; }
+/* Factor is read-only in the trip grid (set on the Dump model page): show it as
+   a plain value, not an input. */
+.gt-factor-val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.gt-factor-val.muted { color: var(--ink-3); }
 td.gt-row-total { text-align: right; font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
 td.gt-x { text-align: right; }
 .gt-del {
