@@ -1,9 +1,9 @@
 <script setup>
 import { computed, watchEffect } from "vue";
-import { useAreaTargets } from "../composables/useAreaTargets.js";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useEntryStore, rowTonnes } from "../composables/useEntryStore.js";
+import { usePlanProduction } from "../composables/usePlanProduction.js";
 import TopBar from "../components/common/TopBar.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
@@ -41,7 +41,20 @@ const PERIOD_LABELS = [
 
 const { selection } = useShiftSelection();
 const { areas, getBucket } = useEntryStore();
-const { areaTarget } = useAreaTargets();
+const { getDatePlans } = usePlanProduction();
+
+// PLAN per area = the daily Plan Production total (Waste + Ore) for the selected
+// date — the same figure entered on Data entry and shown on Fleet overview. The
+// plan is genuinely per-day now; an area with no plan that day reads 0 (instead
+// of the old static area_targets / constant fallback that was equal every day).
+const dailyAreaPlan = computed(() => {
+  const plans = getDatePlans(selection.date);
+  const byArea = {};
+  Object.entries(plans).forEach(([code, { soil, ore }]) => {
+    byArea[code] = (byArea[code] || 0) + (Number(soil) || 0) + (Number(ore) || 0);
+  });
+  return byArea;
+});
 
 // Tonnes per area per calendar hour (0-23), summed across both shifts, for the
 // selected date. Each row is converted with its truck model's own factor.
@@ -74,7 +87,7 @@ const areaSeries = computed(() =>
       for (let hour = startHour; hour < startHour + 3; hour += 1) running += hourlyTonnes[hour];
       actual.push(running);
     }
-    return { area, target: areaTarget(area), actual };
+    return { area, target: dailyAreaPlan.value[area] ?? 0, actual };
   }),
 );
 
