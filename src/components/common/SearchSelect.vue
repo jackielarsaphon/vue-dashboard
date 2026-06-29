@@ -232,4 +232,17 @@ const onBlur = () => {
   font-size: 11px;
   color: var(--ink-3);
 }
+
+/* On phones use a 16px field (stops iOS zooming in on focus) and a roomier
+   tap target. */
+@media (max-width: 640px) {
+  .ss-input {
+    font-size: 16px;
+    padding: 9px 24px 9px 9px;
+  }
+  .ss-option {
+    padding: 10px 10px;
+    font-size: 15px;
+  }
+}
 </style>

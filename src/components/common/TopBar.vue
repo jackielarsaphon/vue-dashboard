@@ -3,10 +3,15 @@ import { computed, onMounted, onUnmounted, ref, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuth } from "../../composables/useAuth.js";
 import { useShiftSelection } from "../../composables/useShiftSelection.js";
+import { useIsMobile } from "../../composables/useIsMobile.js";
 
 const { user, logout } = useAuth();
 const userInitial = computed(() => (user.value?.name || user.value?.username || "?").trim().charAt(0).toUpperCase());
 const isAdmin = computed(() => user.value?.role === "admin");
+// On phones an admin is locked to Data entry, so hide the page navigation
+// (managers keep it — they aren't kiosk-locked).
+const { isMobile } = useIsMobile();
+const hideNav = computed(() => isMobile.value && isAdmin.value);
 const { selection, setDate, setShiftType, setHour, userAdjusted, markUserAdjusted } = useShiftSelection();
 
 defineProps({
@@ -152,7 +157,7 @@ const onHourChange = (event) => {
       </div>
     </div>
 
-    <nav class="topnav" aria-label="Dashboard pages">
+    <nav v-if="!hideNav" class="topnav" aria-label="Dashboard pages">
       <router-link to="/fleet" custom v-slot="{ navigate }">
         <button :class="{ on: route.name === 'fleet' }" type="button" @click="navigate">Fleet overview</button>
       </router-link>

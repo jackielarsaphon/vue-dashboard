@@ -4,6 +4,7 @@ import { useTweaks } from "../composables/useTweaks.js";
 import { useMiningAreas } from "../composables/useMiningAreas.js";
 import { useMaterialRoutes } from "../composables/useMaterialRoutes.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
+import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import TopBar from "../components/common/TopBar.vue";
@@ -101,10 +102,16 @@ const hourLabel = computed(() => {
   const b = String((selection.hour + 1) % 24).padStart(2, "0");
   return `${a}:00 - ${b}:00`;
 });
+const { isMobile } = useIsMobile();
 const currentEntryStep = ref(1);
 const goToEntryStep = (step) => {
   currentEntryStep.value = Math.min(2, Math.max(1, step));
 };
+// On phones the page is trips-only: there's no stepper and no Plan Production
+// step, so always sit on the Excavators step.
+watchEffect(() => {
+  if (isMobile.value) currentEntryStep.value = 2;
+});
 const newPitName = ref("");
 const pitDropdownOpen = ref(false);
 const pits = ref([]);
@@ -676,7 +683,7 @@ onUnmounted(() => {
   <div class="entry-dash">
     <TopBar subtitle="Data entry" />
 
-    <section class="entry-plan-top">
+    <section v-if="!isMobile" class="entry-plan-top">
       <div class="entry-stepper entry-stepper-2" aria-label="Data entry steps">
         <button class="entry-step-card" :class="{ active: currentEntryStep === 1 }" type="button" @click="goToEntryStep(1)">
           <span class="entry-step-badge">1</span>
@@ -696,7 +703,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="currentEntryStep === 1" class="pit-entry-panel">
+    <section v-if="currentEntryStep === 1 && !isMobile" class="pit-entry-panel">
       <div class="pit-entry-toolbar">
         <div class="pit-combo-wrap">
           <input
@@ -776,7 +783,7 @@ onUnmounted(() => {
       </div>
     </section>
     <section v-if="currentEntryStep === 2" class="entry-layout">
-      <aside class="area-side">
+      <aside v-if="!isMobile" class="area-side">
         <div class="area-side-head">
           <h2>Mining area</h2>
           <span class="area-count-pill mono">{{ selectedIndex + 1 }} / {{ areaTabs.length }}</span>
@@ -854,6 +861,20 @@ onUnmounted(() => {
       </aside>
 
       <div class="area-detail">
+        <div v-if="isMobile" class="entry-mobile-areabar">
+          <span class="emab-label">Mining area</span>
+          <div class="emab-select">
+            <SearchSelect
+              :model-value="selectedArea"
+              :options="areaTabs"
+              placeholder="Select area"
+              empty-text="No area planned yet — set the plan on a computer first"
+              @change="area = $event"
+            />
+          </div>
+          <span class="emab-count mono">{{ selectedIndex + 1 }} / {{ areaTabs.length }}</span>
+        </div>
+
         <div class="detail-head">
           <div class="detail-id">
             <span class="mark" />
@@ -1002,12 +1023,12 @@ onUnmounted(() => {
             </thead>
             <tbody>
               <tr v-for="row in openEntry.rows" :key="row.id">
-                <td>
+                <td data-label="Material type">
                   <select class="gt-sel" :value="materialTypeOf(row.material)" @change="setRowMaterialType(row, $event.target.value)">
                     <option v-for="type in MATERIAL_TYPES" :key="type" :value="type">{{ type }}</option>
                   </select>
                 </td>
-                <td>
+                <td data-label="Ore type">
                   <SearchSelect
                     :model-value="row.material"
                     :options="rowOreOptions(row)"
@@ -1016,7 +1037,7 @@ onUnmounted(() => {
                     @change="setRowOreType(row, $event)"
                   />
                 </td>
-                <td>
+                <td data-label="To location">
                   <SearchSelect
                     :model-value="row.dump"
                     :options="rowLocationOptions(row)"
@@ -1025,7 +1046,7 @@ onUnmounted(() => {
                     @change="setEntryRow(row, { dump: $event })"
                   />
                 </td>
-                <td>
+                <td data-label="Dump model">
                   <SearchSelect
                     :model-value="row.model"
                     :options="TRUCKS"
@@ -1034,7 +1055,7 @@ onUnmounted(() => {
                     @change="setEntryRow(row, { model: $event })"
                   />
                 </td>
-                <td class="gt-trip-cell">
+                <td class="gt-trip-cell" data-label="Factor (t/trip)">
                   <input
                     class="gt-num"
                     type="number"
@@ -1046,7 +1067,7 @@ onUnmounted(() => {
                     @change="setFactor(row, $event.target.value)"
                   />
                 </td>
-                <td class="gt-trip-cell">
+                <td class="gt-trip-cell" data-label="Trips">
                   <input
                     class="gt-num"
                     type="number"
@@ -1056,7 +1077,7 @@ onUnmounted(() => {
                     @input="setTrip(row, $event.target.value)"
                   />
                 </td>
-                <td class="gt-row-total">{{ fmt(rowTonnes(row)) }}</td>
+                <td class="gt-row-total" data-label="Tonnes">{{ fmt(rowTonnes(row)) }}</td>
                 <td class="gt-x">
                   <button class="gt-del" type="button" aria-label="Delete row" :disabled="openEntry.rows.length === 1" @click="deleteModalRow(row.id)">x</button>
                 </td>
@@ -1065,8 +1086,8 @@ onUnmounted(() => {
             <tfoot>
               <tr>
                 <td class="tf-label" colspan="5">Trips total</td>
-                <td>{{ modalGrandTotal }}</td>
-                <td class="tf-grand">{{ fmt(modalGrandTonnes) }}</td>
+                <td data-label="Total trips">{{ modalGrandTotal }}</td>
+                <td class="tf-grand" data-label="Total tonnes">{{ fmt(modalGrandTonnes) }}</td>
                 <td />
               </tr>
             </tfoot>

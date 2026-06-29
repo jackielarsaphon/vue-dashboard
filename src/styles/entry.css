@@ -1286,6 +1286,179 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
   .slider-rail { display: none; }
 }
 
+/* ───────────────────────── Phone (≤640px) ─────────────────────────
+   Make Data entry fully fillable on a phone — no horizontal scrolling.
+   The excavator list and the trip-entry grid both switch from wide
+   tables to stacked, labelled cards, and the trip modal goes full
+   screen. Inputs go to 16px so iOS doesn't zoom in on focus. */
+@media (max-width: 640px) {
+  .entry-dash { gap: 8px; padding: 8px; }
+  .pit-entry-panel { padding: 16px 14px; }
+  .exc-panel { padding: 16px 14px; }
+
+  /* Compact area picker that replaces the desktop sidebar list + slider. */
+  .entry-mobile-areabar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .entry-mobile-areabar .emab-label {
+    grid-column: 1 / -1;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+  .entry-mobile-areabar .emab-count {
+    font-size: 12px;
+    color: var(--ink-2);
+    background: var(--chip);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+  }
+
+  /* Plan-source strip: 4 columns no longer fit — wrap to 2. */
+  .detail-plan { grid-template-columns: repeat(2, 1fr); }
+
+  /* "Excavators — N units" header: let the action buttons drop below the
+     title instead of overflowing the right edge. */
+  .exc-panel .area-side-head { flex-wrap: wrap; gap: 10px; }
+
+  .pit-name-input,
+  .entry-text-input,
+  .area-add-input,
+  .exc-mini-input,
+  .exc-note-input,
+  .gt-num,
+  .gt-sel { font-size: 16px; }
+
+  /* ── Excavator rows → cards ── */
+  .exc-list { overflow-x: visible; }
+  .exc-row.head { display: none; }
+  .exc-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+    min-width: 0;
+    padding: 14px 2px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    align-items: end;
+  }
+  /* The head row is hidden, so re-create field labels per cell (cells are
+     in a fixed order: name, trucks, RL, note, trips, enter, delete). */
+  .exc-row > .exc-cell::before {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: left;
+  }
+  .exc-row > .exc-cell:nth-child(2)::before { content: "Trucks in fleet"; }
+  .exc-row > .exc-cell:nth-child(3)::before { content: "RL (m)"; }
+  .exc-row > .exc-cell:nth-child(4)::before { content: "Production note"; }
+  .exc-row > .exc-cell:nth-child(5)::before { content: "Trips"; }
+  .exc-row > .exc-cell.num { text-align: left; }
+  .exc-row > .exc-cell:nth-child(1) { grid-column: 1 / -1; padding-right: 34px; }
+  .exc-row > .exc-cell:nth-child(4) { grid-column: 1 / -1; }
+  .exc-row > .exc-cell:nth-child(6) { align-self: end; }
+  .exc-row > .exc-cell:nth-child(7) { position: absolute; top: 8px; right: 0; }
+  .exc-enter-btn { padding: 11px 10px; }
+
+  /* ── Trip modal → full screen ── */
+  .modal-overlay { padding: 0; }
+  .modal {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  .modal-head { flex-wrap: wrap; }
+  .modal-body { flex: 1; min-height: 0; }
+  .modal-hint { display: none; }
+
+  /* ── Trip grid → cards ── */
+  table.grid-table thead { display: none; }
+  table.grid-table,
+  table.grid-table tbody,
+  table.grid-table tfoot,
+  table.grid-table tr,
+  table.grid-table td { display: block; width: auto; }
+  table.grid-table tbody tr {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  table.grid-table tbody td {
+    display: grid;
+    grid-template-columns: 116px 1fr;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 0;
+    padding: 6px 0;
+  }
+  table.grid-table tbody td:first-child { padding-right: 30px; }
+  table.grid-table tbody td::before {
+    content: attr(data-label);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  table.grid-table tbody td.gt-trip-cell,
+  table.grid-table tbody td.gt-row-total { text-align: left; }
+  table.grid-table .gt-num { width: 100%; max-width: 130px; text-align: left; }
+  table.grid-table tbody td.gt-x {
+    display: block;
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    padding: 0;
+  }
+  table.grid-table tbody td.gt-x::before { content: none; }
+
+  /* tfoot: drop the colspan label + spacer, label the two totals instead. */
+  table.grid-table tfoot tr {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  table.grid-table tfoot td {
+    display: grid;
+    grid-template-columns: 116px 1fr;
+    gap: 12px;
+    text-align: left;
+    border: 0;
+    padding: 6px 0;
+  }
+  table.grid-table tfoot td::before {
+    content: attr(data-label);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  table.grid-table tfoot td.tf-grand { text-align: left; }
+  table.grid-table tfoot td.tf-label,
+  table.grid-table tfoot td:last-child { display: none; }
+}
+
 .mining-page {
   min-height: 100vh;
 }

@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 import { useAuth } from "../composables/useAuth.js";
+import { isMobileViewport } from "../composables/useIsMobile.js";
 import Login from "../pages/Login.vue";
 import FleetOverview from "../pages/FleetOverview.vue";
 import AreaProduction from "../pages/AreaProduction.vue";
@@ -39,6 +40,11 @@ router.beforeEach((to) => {
 
   if (!user.value) return { path: "/login" };
   if (to.meta.adminOnly && !isAdmin) return { path: "/fleet" };
+
+  // On phones the app is a data-entry-only kiosk for admins: every other page
+  // redirects to Data entry. (Non-admins keep their normal pages — they can't
+  // open Data entry anyway.)
+  if (isMobileViewport() && isAdmin && to.name !== "entry") return { name: "entry" };
   return true;
 });
 
