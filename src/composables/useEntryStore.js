@@ -6,6 +6,7 @@ import { useUsers } from "./useUsers.js";
 import { useKpiTargets } from "./useKpiTargets.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
 import { useAreaExcavatorsStore } from "../stores/areaExcavatorsStore";
+import { usePlacementShiftExcavatorStore } from "../stores/placementShiftExcavatorStore";
 import { useMiningAreasStore } from "../stores/miningAreasStore";
 import { useMaterialsStore } from "../stores/materialsStore";
 import { useDumpingAreasStore } from "../stores/dumpingAreasStore";
@@ -70,6 +71,7 @@ const isMissingTableError = (error) =>
 
 const excavatorsStore = useExcavatorsStore();
 const areaExcavatorsStore = useAreaExcavatorsStore();
+const placementShiftExcavatorStore = usePlacementShiftExcavatorStore();
 const miningAreasStore = useMiningAreasStore();
 const materialsStore = useMaterialsStore();
 const dumpingAreasStore = useDumpingAreasStore();
@@ -127,6 +129,23 @@ const excavators = computed(() =>
 
 const excavatorById = computed(() => Object.fromEntries(excavatorsStore.items.value.map((row) => [row.id, row])));
 
+// Per-shift excavator OVERRIDE (public.placement_shift_excavator). area_excavators
+// holds ONE global row per (pit, excavator); this lets that same placement show as a
+// DIFFERENT excavator on Day vs Night, so relabelling a unit on one shift never
+// changes the other. Keyed "placementId_shiftType" -> excavator_id.
+const overrideKey = (placementId, shiftType) => `${placementId}_${shiftType}`;
+const excavatorOverride = computed(() => {
+  const map = {};
+  placementShiftExcavatorStore.items.value.forEach((row) => {
+    map[overrideKey(row.placement_id, row.shift_type)] = row.excavator_id;
+  });
+  return map;
+});
+// The excavator a placement represents on a given shift: the per-shift override if
+// one exists, else the placement's base area_excavators.excavator_id.
+const effectiveExcavatorId = (placementId, shiftType) =>
+  excavatorOverride.value[overrideKey(placementId, shiftType)] ?? placementRow(placementId)?.excavator_id;
+
 // Per-pit placements (public.area_excavators): one row per (pit, excavator). This
 // is the Data entry roster — the same excavator can appear in several pits at once,
 // each placement carrying its own trucks/RL/note. `uid` is the excavator id (trips
@@ -135,10 +154,13 @@ const areaExcavators = computed(() =>
   areaExcavatorsStore.items.value
     .filter((row) => row.active)
     .map((row) => {
-      const exc = excavatorById.value[row.excavator_id];
+      // The excavator this placement shows on the CURRENTLY selected shift (Day and
+      // Night are independent: a per-shift override can relabel it on one shift only).
+      const effExcId = excavatorOverride.value[overrideKey(row.id, selection.shiftType)] ?? row.excavator_id;
+      const exc = excavatorById.value[effExcId];
       return {
         placementId: row.id,
-        uid: row.excavator_id,
+        uid: effExcId,
         areaId: row.mining_area_id,
         name: exc?.code ?? "",
         area: areaCodeById.value[row.mining_area_id] ?? "",
@@ -191,17 +213,14 @@ const editorsByKey = ref({});
 
 const currentKey = computed(() => keyFor(selection.date, selection.shiftType, selection.hour));
 
-// Hours in entry order per shift (Day 06→17, Night 18→05).
+// Hours in entry order per shift (Day 06→17, Night 18→05). Day and Night are
+// INDEPENDENT rosters: a placement / RL / editor carries forward only within its own
+// shift's hours, never across the Day↔Night boundary — so what's keyed on one shift
+// never shows up on the other.
 const SHIFT_HOURS = {
   Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
   Night: [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
 };
-// Operational-day hour order (Day 06→17 then Night 18→05), used to find the most
-// recent earlier hour when carrying an RL value forward into a fresh hour.
-const RL_SLOT_ORDER = [
-  ...SHIFT_HOURS.Day.map((h) => ["Day", h]),
-  ...SHIFT_HOURS.Night.map((h) => ["Night", h]),
-];
 
 const findShiftIds = async (date) => {
   const { data, error } = await supabase.from("shifts").select("id, shift_type").eq("shift_date", date);
@@ -305,6 +324,7 @@ const fetchDateEntries = async (date) => {
   await Promise.all([
     excavatorsStore.load(),
     areaExcavatorsStore.load(),
+    placementShiftExcavatorStore.load(),
     miningAreasStore.load(),
     materialsStore.load(),
     dumpingAreasStore.load(),
@@ -480,7 +500,7 @@ const entries = computed(() => {
     } else {
       const placement = placementRow(slot);
       placementId = placement ? placement.id : null;
-      excavatorId = placement?.excavator_id;
+      excavatorId = placementId ? effectiveExcavatorId(placementId, selection.shiftType) : undefined;
       areaId = placement?.mining_area_id;
       area = areaCodeById.value[areaId] ?? "";
     }
@@ -607,17 +627,48 @@ const updateAreaExcavator = async (placementId, patch) => {
   await stampEditor(placementId);
 };
 
-// Change which excavator a row (placement) is, KEEPING its trips: the slot is the
-// placement, so the trips stay put, and we also re-stamp every production_entries
-// row's excavator_id so dashboards (which group by excavator) stay correct. Always
-// allowed — no lock — so a row can be re-labelled even after trips are entered.
+// Change which excavator a row (placement) is, KEEPING its trips — for the CURRENT
+// SHIFT ONLY. Day and Night are independent: instead of mutating the shared
+// area_excavators row (which would relabel the other shift too), write a per-shift
+// override and re-stamp only this shift type's production_entries so dashboards
+// (which group by excavator) match. Always allowed — no lock — so a row can be
+// re-labelled even after trips are entered.
 const reassignPlacementExcavator = async (placementId, newExcavatorId) => {
-  await areaExcavatorsStore.update(placementId, { excavator_id: newExcavatorId });
-  await supabase.from("production_entries").update({ excavator_id: newExcavatorId }).eq("placement_id", placementId);
-  // Keep the local cache in sync: each cached entry under this slot carries the
-  // excavatorId used by the dashboards.
+  const shiftType = selection.shiftType;
+  // Upsert the per-shift override (one row per placement+shift).
+  const existing = placementShiftExcavatorStore.items.value.find(
+    (row) => row.placement_id === placementId && row.shift_type === shiftType,
+  );
+  const result = existing
+    ? await placementShiftExcavatorStore.update(existing.id, { excavator_id: newExcavatorId, updated_at: new Date().toISOString() })
+    : await placementShiftExcavatorStore.create({ placement_id: placementId, shift_type: shiftType, excavator_id: newExcavatorId });
+
+  // Graceful fallback if the override table hasn't been created yet (run
+  // supabase/placement_shift_excavator.sql): relabel the shared placement the old
+  // way so it still works — it just affects both shifts until the SQL is run.
+  if (!result.ok) {
+    await areaExcavatorsStore.update(placementId, { excavator_id: newExcavatorId });
+    await supabase.from("production_entries").update({ excavator_id: newExcavatorId }).eq("placement_id", placementId);
+    const all = { ...entriesByKey.value };
+    Object.keys(all).forEach((key) => {
+      const bucket = all[key];
+      if (bucket && bucket[placementId]) all[key] = { ...bucket, [placementId]: { ...bucket[placementId], excavatorId: newExcavatorId } };
+    });
+    entriesByKey.value = all;
+    return;
+  }
+
+  // Re-stamp this placement's trips for THIS shift type only (every date), so the
+  // dashboards' excavator grouping matches the override. The other shift is untouched.
+  const { data: shiftRows } = await supabase.from("shifts").select("id").eq("shift_type", shiftType);
+  const shiftIds = (shiftRows || []).map((row) => row.id);
+  if (shiftIds.length) {
+    await supabase.from("production_entries").update({ excavator_id: newExcavatorId }).eq("placement_id", placementId).in("shift_id", shiftIds);
+  }
+  // Keep the local cache in sync for this shift type's keys only (key = date_shift_hour).
   const next = { ...entriesByKey.value };
   Object.keys(next).forEach((key) => {
+    if (key.split("_")[1] !== shiftType) return;
     const bucket = next[key];
     if (bucket && bucket[placementId]) {
       next[key] = { ...bucket, [placementId]: { ...bucket[placementId], excavatorId: newExcavatorId } };
@@ -730,7 +781,7 @@ const updateEntryRow = async (placementId, rowId, patch) => {
   const key = currentKey.value;
   const slot = placementId;
   const placement = placementRow(placementId);
-  const excavatorId = placement?.excavator_id;
+  const excavatorId = effectiveExcavatorId(placementId, selection.shiftType);
   const areaId = placement?.mining_area_id;
 
   if (rowId.startsWith("draft-")) {
@@ -820,7 +871,7 @@ const updateLocalTrip = (placementId, rowId, value) => {
     bucket[slot] ||
     (bucket[slot] = {
       placementId,
-      excavatorId: placement?.excavator_id,
+      excavatorId: effectiveExcavatorId(placementId, selection.shiftType),
       areaId: placement?.mining_area_id,
       area: areaCodeById.value[placement?.mining_area_id] ?? "",
       createdBy: null,
@@ -851,7 +902,8 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
   const value = rawValue === "" ? 0 : Math.max(0, Number(rawValue) || 0);
   const placement = placementRow(placementId);
   if (!placement) return false;
-  const excavatorId = placement.excavator_id;
+  // Stamp the excavator this placement represents on THIS shift (per-shift override).
+  const excavatorId = effectiveExcavatorId(placementId, selection.shiftType);
   const areaId = placement.mining_area_id;
   const slot = placementId;
 
@@ -959,15 +1011,15 @@ const setPlacementNote = async (placementId, value) => {
 };
 
 // Per-hour RL for a placement at the current (date, shift, hour). If this hour has
-// no value of its own, carry forward the most recent EARLIER hour's RL (so a new
-// hour shows the latest reading), falling back to the placement's seed rl_meters.
+// no value of its own, carry forward the most recent EARLIER hour's RL WITHIN THIS
+// SHIFT (never the other shift), falling back to the placement's seed rl_meters.
 const placementRlFor = (placementId) => {
   const exact = rlByKey.value[currentKey.value]?.[placementId];
   if (exact !== undefined && exact !== null) return exact;
-  const idx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
+  const order = SHIFT_HOURS[selection.shiftType] || [];
+  const idx = order.indexOf(selection.hour);
   for (let i = idx - 1; i >= 0; i -= 1) {
-    const [st, h] = RL_SLOT_ORDER[i];
-    const v = rlByKey.value[keyFor(selection.date, st, h)]?.[placementId];
+    const v = rlByKey.value[keyFor(selection.date, selection.shiftType, order[i])]?.[placementId];
     if (v !== undefined && v !== null) return v;
   }
   const placement = areaExcavators.value.find((p) => p.placementId === placementId);
@@ -1010,16 +1062,16 @@ const setPlacementRl = async (placementId, value) => {
 };
 
 // Who added (first keyed) and who last edited this placement, for the current
-// (date, shift, hour). Carries forward the most recent earlier hour's record
-// (like RL), so a unit that keeps showing across hours keeps its names.
+// (date, shift, hour). Carries forward the most recent earlier hour's record WITHIN
+// THIS SHIFT (like RL), so a unit that keeps showing across hours keeps its names.
 // Returns { addedBy, editedBy } of users.ids (either may be "").
 const placementEditorsFor = (placementId) => {
   const exact = editorsByKey.value[currentKey.value]?.[placementId];
   if (exact && (exact.addedBy || exact.editedBy)) return exact;
-  const idx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
+  const order = SHIFT_HOURS[selection.shiftType] || [];
+  const idx = order.indexOf(selection.hour);
   for (let i = idx - 1; i >= 0; i -= 1) {
-    const [st, h] = RL_SLOT_ORDER[i];
-    const v = editorsByKey.value[keyFor(selection.date, st, h)]?.[placementId];
+    const v = editorsByKey.value[keyFor(selection.date, selection.shiftType, order[i])]?.[placementId];
     if (v && (v.addedBy || v.editedBy)) return v;
   }
   return { addedBy: "", editedBy: "" };
@@ -1074,22 +1126,23 @@ const placementHasDataNow = (placementId) => {
 };
 
 // Whether a placement's row shows in the current hour. Forward-only carry WITHIN the
-// operational day (slot order: Day 06→17 then Night 18→05), anchored on real data:
+// CURRENT SHIFT only — Day and Night are independent rosters, so a unit keyed on one
+// shift never appears on the other. Anchored on real data:
 //   • data/draft keyed THIS hour → always shows (covers "+ Add" and live keying);
-//   • otherwise walk the day's earlier slots in order — real data switches it ON and
-//     it stays on for the following hours, so a working unit keeps showing (empty,
+//   • otherwise walk THIS SHIFT's earlier hours — real data switches it ON and it
+//     stays on for the following hours, so a working unit keeps showing (empty,
 //     ready to key); a per-hour removal ("x") switches it OFF from that hour onward;
 //   • a removal at THIS hour hides it.
-// It never reaches before the first real-data hour and never crosses into another
-// date, and drafts don't propagate (only real trips / note / RL carry a unit forward).
+// It never reaches before the first real-data hour, never crosses into another date,
+// and never crosses the Day/Night boundary. Drafts don't propagate.
 const placementVisibleNow = (placementId) => {
   if (placementHasDataNow(placementId)) return true;
   if (isPlacementRemovedNow(placementId)) return false;
-  const curIdx = RL_SLOT_ORDER.findIndex(([st, h]) => st === selection.shiftType && h === selection.hour);
+  const order = SHIFT_HOURS[selection.shiftType] || [];
+  const curIdx = order.indexOf(selection.hour);
   let visible = false;
   for (let i = 0; i < curIdx; i += 1) {
-    const [st, h] = RL_SLOT_ORDER[i];
-    const key = keyFor(selection.date, st, h);
+    const key = keyFor(selection.date, selection.shiftType, order[i]);
     if (removedByKey.value[key]?.[placementId]) visible = false;
     else if (placementHasRealDataAt(placementId, key)) visible = true;
   }
