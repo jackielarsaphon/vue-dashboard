@@ -494,14 +494,15 @@ const pickExcavator = async (placement, code) => {
 };
 
 // "+ Add excavator" puts a fresh, blank row into the selected pit for THIS hour. It
-// offers the first unit not already shown this hour (so it never double-adds the same
-// one into the same hour); change the unit afterwards via the row's EXCAVATOR cell.
+// prefers a unit not already shown, but falls back to any registered unit so the SAME
+// excavator can be added again as a separate row (duplicates allowed — each row keeps
+// its own trips). Change the unit afterwards via the row's EXCAVATOR cell.
 const shownExcavatorNamesNow = computed(() => new Set(detailRows.value.map((placement) => placement.name)));
 const assignableExcavators = computed(() =>
   availableExcavatorCodes.value.filter((name) => !shownExcavatorNamesNow.value.has(name)).sort((a, b) => a.localeCompare(b)),
 );
 const addExcavator = async () => {
-  const code = assignableExcavators.value[0];
+  const code = assignableExcavators.value[0] ?? availableExcavatorCodes.value[0];
   if (!code) return;
   const target = excavators.value.find((excavator) => excavator.name === code);
   if (target) await addAreaExcavator(selectedArea.value, target.uid);
@@ -938,7 +939,7 @@ onUnmounted(() => {
               <button
                 class="add-exc"
                 type="button"
-                :disabled="!selectedArea || assignableExcavators.length === 0"
+                :disabled="!selectedArea || availableExcavatorCodes.length === 0"
                 @click="addExcavator"
               >
                 + Add excavator

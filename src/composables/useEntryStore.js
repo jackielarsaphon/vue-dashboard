@@ -580,33 +580,32 @@ const removeExcavator = async (uid) => {
 
 // --- Per-pit placement CRUD (public.area_excavators) -----------------------
 // Place an excavator into a pit for the CURRENT hour. area_excavators is just the
-// registry of (pit, excavator) slots — the same excavator can sit in several pits
-// (one row each), and the unique(mining_area_id, excavator_id) constraint blocks the
-// same one twice in one pit, so a slot is REUSED across hours rather than duplicated.
-// Presence per hour is data-driven (see placementHasDataNow): adding here only seeds
-// an empty draft row for THIS hour so the unit shows up to be keyed — nothing is
-// remembered or carried into any other hour. The row vanishes again unless real data
-// (trips / note / RL) is entered for the hour.
+// registry of (pit, excavator) slots. The same excavator can be placed in a pit MORE
+// THAN ONCE (each row keeps its own trips via placement_id) — production_entries_
+// placement.sql dropped the old unique(mining_area_id, excavator_id) — so "+ Add
+// excavator" always creates a NEW row. Presence per hour is data-driven (see
+// placementHasDataNow): adding here only seeds an empty draft row for THIS hour.
 const addAreaExcavator = async (areaCode, excavatorId) => {
   const miningAreaId = areaIdByCode.value[areaCode];
   if (!miningAreaId || !excavatorId) return;
-  // Reuse the existing slot for this (pit, excavator) if there is one — the unique
-  // constraint forbids a second, and its other hours' data must stay untouched.
-  const existing = areaExcavatorsStore.items.value.find(
-    (row) => row.active && row.mining_area_id === miningAreaId && row.excavator_id === excavatorId,
-  );
-  let placementId = existing?.id;
+  // Always create a NEW placement so the same excavator can be added again as a
+  // separate row. If the insert fails because the old unique constraint is still in
+  // force (production_entries_placement.sql not run), fall back to the existing slot.
+  const result = await areaExcavatorsStore.create({
+    mining_area_id: miningAreaId,
+    excavator_id: excavatorId,
+    truck_count: 0,
+    rl_meters: null,
+    status: "ok",
+    notes: "",
+    active: true,
+  });
+  let placementId = result?.data?.id;
   if (!placementId) {
-    const result = await areaExcavatorsStore.create({
-      mining_area_id: miningAreaId,
-      excavator_id: excavatorId,
-      truck_count: 0,
-      rl_meters: null,
-      status: "ok",
-      notes: "",
-      active: true,
-    });
-    placementId = result?.data?.id;
+    const existing = areaExcavatorsStore.items.value.find(
+      (row) => row.active && row.mining_area_id === miningAreaId && row.excavator_id === excavatorId,
+    );
+    placementId = existing?.id;
   }
   if (!placementId) return;
   // Seed a blank draft trip row so the placement appears in this hour ready for entry.
