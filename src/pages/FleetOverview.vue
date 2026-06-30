@@ -35,7 +35,7 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow, areas: storeAreas, reload: reloadEntries } = useEntryStore();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
 const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
 const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
 
@@ -474,90 +474,6 @@ const areaBars = computed(() => {
   });
 });
 
-// --- Area status board -------------------------------------------------------
-// Per-pit progress vs the day's plan, shown as the "Pit performance" table between
-// the "Production by excavator" and "Production by shift - area" panels. Moved here
-// from the Area production page.
-const fmtT = (n) => Math.round(Number(n)).toLocaleString("en-US");
-
-// Pill text per status, shown in the Pit performance table.
-const PIT_STATUS_LABEL = { ok: "ON PLAN", warn: "AT RISK", alert: "BEHIND" };
-
-// on plan (ok) ≥100% or no plan; at risk (warn) 85–99%; behind (alert) <85%.
-const statusFor = (actual, target) => {
-  if (target <= 0) return "ok";
-  const p = (actual / target) * 100;
-  if (p >= 100) return "ok";
-  if (p >= 85) return "warn";
-  return "alert";
-};
-
-// PLAN per pit = the day's Plan Production total (Waste + Ore).
-const dailyAreaPlan = computed(() => {
-  const plans = getDatePlans(selection.date);
-  const byArea = {};
-  Object.entries(plans).forEach(([code, { soil, ore }]) => {
-    byArea[code] = (byArea[code] || 0) + (Number(soil) || 0) + (Number(ore) || 0);
-  });
-  return byArea;
-});
-
-// Tonnes per pit per calendar hour (0-23), summed across both shifts.
-const hourlyAreaTonnes = computed(() => {
-  const byArea = new Map();
-  storeAreas.value.forEach((area) => byArea.set(area, Array(24).fill(0)));
-  ["Day", "Night"].forEach((shiftType) => {
-    for (let hour = 0; hour < 24; hour += 1) {
-      Object.values(getBucket(selection.date, shiftType, hour)).forEach((entry) => {
-        const tonnes = byArea.get(entry.area);
-        if (!tonnes) return;
-        tonnes[hour] += entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
-      });
-    }
-  });
-  return byArea;
-});
-
-// Cumulative tonnes by 3-hour period: [0, p1, …, p8] per pit.
-const areaSeries = computed(() =>
-  Array.from(hourlyAreaTonnes.value.entries()).map(([area, hourlyTonnes]) => {
-    const actual = [0];
-    let running = 0;
-    for (let period = 0; period < 8; period += 1) {
-      for (let hour = period * 3; hour < period * 3 + 3; hour += 1) running += hourlyTonnes[hour];
-      actual.push(running);
-    }
-    return { area, target: dailyAreaPlan.value[area] ?? 0, actual };
-  }),
-);
-
-const statusCounts = computed(() => {
-  const counts = { ok: 0, warn: 0, alert: 0 };
-  areaSeries.value.forEach((series) => {
-    counts[statusFor(series.actual.at(-1), series.target)] += 1;
-  });
-  return counts;
-});
-
-// One row per pit, worst-vs-plan first (the board's default "deficit" order).
-const areaCards = computed(() =>
-  [...areaSeries.value]
-    .sort((a, b) => a.actual.at(-1) - a.target - (b.actual.at(-1) - b.target))
-    .map((series) => {
-      const finalActual = series.actual.at(-1);
-      // No plan (target ≤ 0) can't be a %, so show it as 100% on-plan.
-      const achievement = series.target > 0 ? Math.round((finalActual / series.target) * 100) : 100;
-      return {
-        area: series.area,
-        target: series.target,
-        finalActual,
-        achievement,
-        delta: finalActual - series.target,
-        status: statusFor(finalActual, series.target),
-      };
-    }),
-);
-
 </script>
 
 <template>
@@ -790,46 +706,6 @@ const areaCards = computed(() =>
           </div>
         </div>
 
-        <div class="area-board panel">
-          <div class="status-board-head">
-            <h2 class="board-h">Area status board</h2>
-            <div class="board-legend">
-              <span class="lg-pill lg-ok">{{ statusCounts.ok }} on plan</span>
-              <span class="lg-pill lg-warn">{{ statusCounts.warn }} at risk</span>
-              <span class="lg-pill lg-alert">{{ statusCounts.alert }} behind</span>
-            </div>
-          </div>
-
-          <div v-if="areaCards.length" class="pit-perf">
-            <div class="pit-row pit-head">
-              <span class="pit-c-pit">PIT</span>
-              <span class="pit-c-status">STATUS</span>
-              <span class="pit-c-num">ACTUAL · t</span>
-              <span class="pit-c-num">PLAN · t</span>
-              <span class="pit-c-bar">ACHIEVEMENT</span>
-              <span class="pit-c-pct">%</span>
-              <span class="pit-c-num">VARIANCE · t</span>
-            </div>
-            <div v-for="series in areaCards" :key="series.area" class="pit-row">
-              <span class="pit-c-pit pit-code">{{ series.area }}</span>
-              <span class="pit-c-status">
-                <span class="pit-pill" :class="`pit-pill-${series.status}`">{{ PIT_STATUS_LABEL[series.status] }}</span>
-              </span>
-              <span class="pit-c-num mono">{{ fmtT(series.finalActual) }}</span>
-              <span class="pit-c-num mono pit-soft">{{ fmtT(series.target) }}</span>
-              <span class="pit-c-bar">
-                <span class="pit-bar">
-                  <span class="pit-bar-fill" :class="`pit-bar-${series.status}`" :style="{ width: `${Math.min(100, series.achievement)}%` }" />
-                </span>
-              </span>
-              <span class="pit-c-pct mono" :class="`pit-pct-${series.status}`">{{ series.achievement }}%</span>
-              <span class="pit-c-num mono" :class="series.delta >= 0 ? 'pit-pos' : 'pit-neg'">
-                {{ series.delta >= 0 ? "+" : "−" }}{{ fmtT(Math.abs(series.delta)) }}
-              </span>
-            </div>
-          </div>
-        </div>
-
         <div class="panel shift-panel">
           <div class="bytype">
             <div class="bytype-head">
@@ -978,94 +854,3 @@ const areaCards = computed(() =>
     </TweaksPanel>
   </div>
 </template>
-
-<style scoped>
-/* The area status board sits in the narrow right column (col-side), between the
-   excavator and shift-area panels, as a compact "Pit performance" table — one row
-   per pit: code, status pill, actual, plan, achievement bar, %, and variance. */
-.area-board {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.pit-perf {
-  display: flex;
-  flex-direction: column;
-}
-.pit-row {
-  display: grid;
-  grid-template-columns: minmax(52px, auto) minmax(58px, auto) minmax(48px, 1fr) minmax(48px, 1fr) minmax(70px, 2.2fr) 42px minmax(58px, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 7px 2px;
-  border-bottom: 1px solid var(--line-soft);
-}
-.pit-head {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 5px;
-}
-.pit-row:last-child {
-  border-bottom: none;
-}
-.pit-head span {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  font-weight: 600;
-}
-.pit-c-num,
-.pit-c-pct {
-  text-align: right;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--ink);
-}
-.pit-soft { color: var(--ink-3); font-weight: 500; }
-.pit-code {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: var(--ink);
-}
-.pit-pill {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.pit-pill-ok { background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); }
-.pit-pill-warn { background: color-mix(in oklab, var(--warn) 16%, transparent); color: var(--warn); }
-.pit-pill-alert { background: color-mix(in oklab, var(--alert) 16%, transparent); color: var(--alert); }
-.pit-bar {
-  display: block;
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-}
-.pit-bar-fill { display: block; height: 100%; border-radius: 999px; }
-.pit-bar-ok { background: var(--ok); }
-.pit-bar-warn { background: var(--warn); }
-.pit-bar-alert { background: var(--alert); }
-.pit-pct-ok { color: var(--ok); font-weight: 700; }
-.pit-pct-warn { color: var(--warn); font-weight: 700; }
-.pit-pct-alert { color: var(--alert); font-weight: 700; }
-.pit-pos { color: var(--ok); font-weight: 600; }
-.pit-neg { color: var(--alert); font-weight: 600; }
-
-/* Stacking the board one card per row makes the right column (col-side) tall.
-   Without this the grid stretches the left column's panels to match, leaving a
-   big empty white box under the Excavator detail table. Pack them to the top so
-   panels keep their natural height and the leftover space is plain background. */
-.col-main {
-  align-content: start;
-}
-</style>
