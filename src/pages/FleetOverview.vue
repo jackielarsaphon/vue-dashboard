@@ -35,7 +35,7 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow, areas: storeAreas, reload: reloadEntries } = useEntryStore();
 const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
 const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
 
@@ -115,6 +115,23 @@ const placementsByExcavator = computed(() => {
 // aligned with the plan instead of joining every pit it touched ("NLU03A, TKS01A").
 const planPits = computed(() => new Set(Object.keys(getDatePlans(selection.date))));
 
+// An excavator belongs to ONE pit. If the hour's data ties a unit to several pits
+// — a stale/duplicate placement, or a relabel that left rows under the old pit —
+// the Area cell must NOT list them all ("PVT03B, TKS02A"). Pick the single pit the
+// unit actually worked most this hour (most trips); fall back to a note-only pit
+// when it logged no trips. Always returns one code. Off-plan pits are dropped only
+// while a plan exists (mirrors planPits), so a no-plan day still resolves to a pit.
+const pickArea = (areaTrips, noteAreas) => {
+  const recognised = (code) => planPits.value.size === 0 || planPits.value.has(code);
+  const withTrips = [...areaTrips.entries()].filter(([code]) => recognised(code));
+  if (withTrips.length) {
+    withTrips.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return withTrips[0][0];
+  }
+  const noted = [...noteAreas].filter(recognised).sort((a, b) => a.localeCompare(b));
+  return noted[0] || "";
+};
+
 // Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
 // and the "BCM by hour" chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
@@ -125,7 +142,8 @@ const excRows = computed(() =>
     // entries (every pit this unit hauled in). On top of that, pits where the unit
     // only wrote a Production note (no trips — e.g. "broken down / being serviced")
     // are surfaced too, so they don't silently disappear from the dashboard.
-    const areaSet = new Set();
+    const areaTrips = new Map(); // pit -> trips this hour (where the unit really worked)
+    const noteAreas = new Set(); // pits where it only wrote a note (no trips)
     const activePlacementIds = new Set();
     Object.entries(entries.value).forEach(([placementId, entry]) => {
       if (entry.excavatorId !== excavator.uid) return;
@@ -137,13 +155,13 @@ const excRows = computed(() =>
         entryTrips += total;
       });
       if (entryTrips > 0) {
-        if (entry.area) areaSet.add(entry.area);
+        if (entry.area) areaTrips.set(entry.area, (areaTrips.get(entry.area) || 0) + entryTrips);
         activePlacementIds.add(placementId);
       }
     });
     (placementsByExcavator.value[excavator.uid] || []).forEach((placement) => {
       if (!String(placementNoteFor(placement.placementId) || "").trim()) return;
-      if (placement.area) areaSet.add(placement.area);
+      if (placement.area) noteAreas.add(placement.area);
       activePlacementIds.add(placement.placementId);
     });
     const placements = (placementsByExcavator.value[excavator.uid] || []).filter((p) => activePlacementIds.has(p.placementId));
@@ -155,12 +173,7 @@ const excRows = computed(() =>
     return {
       exc: excavator.name,
       trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
-      area: Array.from(areaSet)
-        // Keep only pits the plan recognises; on a day with no plan at all, fall
-        // back to showing every pit so Area isn't blanked out across the board.
-        .filter((code) => planPits.value.size === 0 || planPits.value.has(code))
-        .sort((a, b) => a.localeCompare(b))
-        .join(", "),
+      area: pickArea(areaTrips, noteAreas),
       status,
       remark: note || STATUS_REMARK[status] || "Normal",
       trip,
@@ -461,6 +474,135 @@ const areaBars = computed(() => {
   });
 });
 
+// --- Area status board -------------------------------------------------------
+// Per-pit progress vs the day's plan, shown as cards between the "Production by
+// excavator" and "Production by shift - area" panels. Moved here from the Area
+// production page; the logic mirrors what that page used to render.
+const fmtT = (n) => Math.round(Number(n)).toLocaleString("en-US");
+
+const PERIOD_LABELS = [
+  "00:00 - 03:00",
+  "03:00 - 06:00",
+  "06:00 - 09:00",
+  "09:00 - 12:00",
+  "12:00 - 15:00",
+  "15:00 - 18:00",
+  "18:00 - 21:00",
+  "21:00 - 00:00",
+];
+
+// on plan (ok) ≥100% or no plan; at risk (warn) 85–99%; behind (alert) <85%.
+const statusFor = (actual, target) => {
+  if (target <= 0) return "ok";
+  const p = (actual / target) * 100;
+  if (p >= 100) return "ok";
+  if (p >= 85) return "warn";
+  return "alert";
+};
+
+const linePath = (points) => points.map((point, i) => `${i ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+
+// PLAN per pit = the day's Plan Production total (Waste + Ore).
+const dailyAreaPlan = computed(() => {
+  const plans = getDatePlans(selection.date);
+  const byArea = {};
+  Object.entries(plans).forEach(([code, { soil, ore }]) => {
+    byArea[code] = (byArea[code] || 0) + (Number(soil) || 0) + (Number(ore) || 0);
+  });
+  return byArea;
+});
+
+// Tonnes per pit per calendar hour (0-23), summed across both shifts.
+const hourlyAreaTonnes = computed(() => {
+  const byArea = new Map();
+  storeAreas.value.forEach((area) => byArea.set(area, Array(24).fill(0)));
+  ["Day", "Night"].forEach((shiftType) => {
+    for (let hour = 0; hour < 24; hour += 1) {
+      Object.values(getBucket(selection.date, shiftType, hour)).forEach((entry) => {
+        const tonnes = byArea.get(entry.area);
+        if (!tonnes) return;
+        tonnes[hour] += entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
+      });
+    }
+  });
+  return byArea;
+});
+
+// Cumulative tonnes by 3-hour period: [0, p1, …, p8] per pit.
+const areaSeries = computed(() =>
+  Array.from(hourlyAreaTonnes.value.entries()).map(([area, hourlyTonnes]) => {
+    const actual = [0];
+    let running = 0;
+    for (let period = 0; period < 8; period += 1) {
+      for (let hour = period * 3; hour < period * 3 + 3; hour += 1) running += hourlyTonnes[hour];
+      actual.push(running);
+    }
+    return { area, target: dailyAreaPlan.value[area] ?? 0, actual };
+  }),
+);
+
+const statusCounts = computed(() => {
+  const counts = { ok: 0, warn: 0, alert: 0 };
+  areaSeries.value.forEach((series) => {
+    counts[statusFor(series.actual.at(-1), series.target)] += 1;
+  });
+  return counts;
+});
+
+const areaCards = computed(() => {
+  const labels = PERIOD_LABELS;
+  const n = labels.length;
+  // Worst-vs-plan first (the board's default "deficit" order).
+  const sorted = [...areaSeries.value].sort((a, b) => a.actual.at(-1) - a.target - (b.actual.at(-1) - b.target));
+
+  return sorted.map((series) => {
+    const planCum = Array.from({ length: n + 1 }, (_, i) => (series.target / n) * i);
+    const actualCum = series.actual;
+    const finalActual = actualCum.at(-1);
+    // No plan (target ≤ 0) can't be a %, so show it as 100% on-plan.
+    const achievement = series.target > 0 ? Math.round((finalActual / series.target) * 100) : 100;
+    const delta = finalActual - series.target;
+    const status = statusFor(finalActual, series.target);
+    const W = 260;
+    const H = 56;
+    const max = Math.max(...planCum, ...actualCum) * 1.05 || 1;
+    const xAt = (i) => (W / n) * i;
+    const yAt = (value) => H - (value / max) * (H - 2) - 1;
+    const planPoints = planCum.map((value, i) => ({ x: xAt(i), y: yAt(value) }));
+    const actualPoints = actualCum.map((value, i) => ({ x: xAt(i), y: yAt(value) }));
+    const plan = linePath(planPoints);
+    const actual = linePath(actualPoints);
+    const reversedPlan = [...planPoints].reverse().map((point) => `L${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    const diffArea = `${actual} ${reversedPlan} Z`;
+    const currentPoint = actualPoints.at(-1);
+    const periods = labels.map((label, i) => {
+      const actualPeriod = actualCum[i + 1];
+      const planPeriod = planCum[i + 1];
+      let periodStatus = "future";
+      if (actualPeriod != null) {
+        periodStatus = actualPeriod >= planPeriod ? "ok" : actualPeriod >= planPeriod * 0.85 ? "warn" : "alert";
+      }
+      return { label, hour: parseInt(label.slice(0, 2), 10), status: periodStatus };
+    });
+
+    return {
+      ...series,
+      W,
+      H,
+      finalActual,
+      achievement,
+      delta,
+      status,
+      plan,
+      actual,
+      diffArea,
+      fillColor: finalActual >= planCum.at(-1) ? "var(--ok)" : "var(--alert)",
+      currentPoint,
+      periods,
+    };
+  });
+});
+
 </script>
 
 <template>
@@ -693,6 +835,70 @@ const areaBars = computed(() => {
           </div>
         </div>
 
+        <div class="area-board">
+          <div class="status-board-head">
+            <h2 class="board-h">Area status board</h2>
+            <div class="board-legend">
+              <span class="lg-pill lg-ok">{{ statusCounts.ok }} on plan</span>
+              <span class="lg-pill lg-warn">{{ statusCounts.warn }} at risk</span>
+              <span class="lg-pill lg-alert">{{ statusCounts.alert }} behind</span>
+            </div>
+          </div>
+
+          <div v-if="areaCards.length" class="area-grid">
+            <div v-for="series in areaCards" :key="series.area" class="area-tile" :class="`area-tile-${series.status}`">
+              <div class="area-tile-bar" />
+              <div class="area-tile-body">
+                <div class="area-tile-head">
+                  <div class="area-tile-id">
+                    <span class="area-tile-dot" />
+                    <h2>{{ series.area }}</h2>
+                  </div>
+                  <div class="area-tile-pct mono" :class="`ach-${series.status}`">
+                    {{ series.achievement }}<span class="pct-sign">%</span>
+                  </div>
+                </div>
+
+                <div class="area-tile-numbers">
+                  <div class="num-block">
+                    <span class="num-k">Actual</span>
+                    <span class="num-v mono">{{ fmtT(series.finalActual) }}<span class="num-u">t</span></span>
+                  </div>
+                  <div class="num-block">
+                    <span class="num-k">Plan</span>
+                    <span class="num-v mono num-v-soft">{{ fmtT(series.target) }}<span class="num-u">t</span></span>
+                  </div>
+                  <div class="num-block num-block-delta">
+                    <span class="num-k">vs plan</span>
+                    <span class="num-v mono" :class="series.delta >= 0 ? 'pos' : 'neg'">
+                      {{ series.delta >= 0 ? "+ " : "- " }}{{ fmtT(Math.abs(series.delta)) }}<span class="num-u">t</span>
+                    </span>
+                  </div>
+                </div>
+
+                <svg :viewBox="`0 0 ${series.W} ${series.H}`" class="spark" preserveAspectRatio="none">
+                  <path :d="series.diffArea" :fill="series.fillColor" opacity="0.14" />
+                  <path :d="series.plan" class="plan-line" />
+                  <path :d="series.actual" class="actual-line" :style="{ stroke: `var(--${series.status === 'alert' ? 'alert' : series.status === 'warn' ? 'warn' : 'ok'})` }" />
+                  <circle
+                    :cx="series.currentPoint.x"
+                    :cy="series.currentPoint.y"
+                    r="2.5"
+                    :fill="`var(--${series.status === 'alert' ? 'alert' : series.status === 'warn' ? 'warn' : 'ok'})`"
+                  />
+                </svg>
+
+                <div class="period-dots">
+                  <div v-for="period in series.periods" :key="period.label" class="pd-cell" :class="`pd-${period.status}`" :title="period.label">
+                    <div class="pd-bar" />
+                    <div class="pd-hour mono">{{ period.hour }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="panel shift-panel">
           <div class="bytype">
             <div class="bytype-head">
@@ -841,3 +1047,18 @@ const areaBars = computed(() => {
     </TweaksPanel>
   </div>
 </template>
+
+<style scoped>
+/* The area status board sits in the narrow right column (col-side), between the
+   excavator and shift-area panels. Override the page-wide 4-column area grid so
+   the cards reflow to fit the column instead of squeezing into 4 tiny columns. */
+.area-board {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.area-board .area-grid {
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+}
+</style>
