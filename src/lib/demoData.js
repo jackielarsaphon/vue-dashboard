@@ -125,10 +125,10 @@ export function buildDemoStore() {
     "E-506": ["TKS1B", "SKT90S", 4],
     "E-507": ["TKS2A", "SKT105S", 9],
   };
-  // Day shift = 06:00–19:00 (hours 6–18), Night shift = 19:00–06:00 (hours 19–5;
+  // Day shift = 06:00–18:00 (hours 6–17), Night shift = 18:00–06:00 (hours 18–5;
   // hours 0–5 belong to the night shift that started the previous evening).
-  const DAY_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
-  const NIGHT_HOURS = [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
+  const DAY_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+  const NIGHT_HOURS = [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
 
   const areaTargetSeed = { DSW04B: 7000, NLU03A: 9000, NLU03B: 6000, NLU03C: 5000, TKS1A: 8000, TKS1B: 4000, TKS2A: 9000 };
   // Plan rows are keyed by pattern code = the area code shown in the PLAN SOURCE

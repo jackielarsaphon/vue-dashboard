@@ -44,7 +44,7 @@ onUnmounted(() => {
 
 const clock = computed(() => now.value.toLocaleTimeString("en-GB"));
 const autoHour = computed(() => now.value.getHours());
-const autoShiftType = computed(() => (autoHour.value >= 6 && autoHour.value < 19 ? "Day" : "Night"));
+const autoShiftType = computed(() => (autoHour.value >= 6 && autoHour.value < 18 ? "Day" : "Night"));
 
 // Data entry follows the clock: the current date/hour is the latest you can
 // key, future slots are blocked, but any past slot stays editable.
@@ -61,7 +61,7 @@ const slotStart = (date, shiftType, hour) => {
 };
 const isFutureSlot = (date, shiftType, hour) => slotStart(date, shiftType, hour).getTime() > now.value.getTime();
 const allowedHours = (date, shiftType) => {
-  const values = shiftType === "Day" ? [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] : [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
+  const values = shiftType === "Day" ? [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17] : [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
   return values.filter((hour) => !isFutureSlot(date, shiftType, hour));
 };
 

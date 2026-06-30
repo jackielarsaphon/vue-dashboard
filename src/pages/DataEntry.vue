@@ -301,7 +301,7 @@ const selectPattern = (pattern) => {
   drillLog.value.bitSize = String(pattern.bit);
 };
 const drillHourOptions = computed(() => {
-  const values = drillLog.value.shift === "Day" ? [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] : [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
+  const values = drillLog.value.shift === "Day" ? [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17] : [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
   return values.map((hour) => {
     const a = String(hour).padStart(2, "0");
     const b = String((hour + 1) % 24).padStart(2, "0");
@@ -650,8 +650,8 @@ const deleteModalRow = (id) => {
 // into a fresh hour as draft rows — but with Trips reset to 0, so the operator only
 // re-keys the trip counts. Returns true when something was carried.
 const HOUR_SEQUENCE = {
-  Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-  Night: [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
+  Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+  Night: [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
 };
 const carryForwardRows = (placement) => {
   const order = HOUR_SEQUENCE[selection.shiftType] || [];

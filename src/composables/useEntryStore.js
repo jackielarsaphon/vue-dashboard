@@ -191,12 +191,12 @@ const editorsByKey = ref({});
 
 const currentKey = computed(() => keyFor(selection.date, selection.shiftType, selection.hour));
 
-// Hours in entry order per shift (Day 06→18, Night 19→05).
+// Hours in entry order per shift (Day 06→17, Night 18→05).
 const SHIFT_HOURS = {
-  Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-  Night: [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
+  Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+  Night: [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
 };
-// Operational-day hour order (Day 06→18 then Night 19→05), used to find the most
+// Operational-day hour order (Day 06→17 then Night 18→05), used to find the most
 // recent earlier hour when carrying an RL value forward into a fresh hour.
 const RL_SLOT_ORDER = [
   ...SHIFT_HOURS.Day.map((h) => ["Day", h]),
@@ -455,7 +455,7 @@ watch(
   ([date, shiftType]) => {
     // Don't create a shift row for a shift that hasn't started yet (its first
     // hour is still in the future).
-    const firstHour = shiftType === "Day" ? 6 : 19;
+    const firstHour = shiftType === "Day" ? 6 : 18;
     if (slotStart(date, shiftType, firstHour).getTime() > Date.now()) return;
     getOrCreateShiftId(date, shiftType);
   },
@@ -1074,7 +1074,7 @@ const placementHasDataNow = (placementId) => {
 };
 
 // Whether a placement's row shows in the current hour. Forward-only carry WITHIN the
-// operational day (slot order: Day 06→18 then Night 19→05), anchored on real data:
+// operational day (slot order: Day 06→17 then Night 18→05), anchored on real data:
 //   • data/draft keyed THIS hour → always shows (covers "+ Add" and live keying);
 //   • otherwise walk the day's earlier slots in order — real data switches it ON and
 //     it stays on for the following hours, so a working unit keeps showing (empty,

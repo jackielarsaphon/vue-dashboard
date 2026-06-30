@@ -346,15 +346,15 @@ const shiftAreaTip = computed(() => {
 });
 
 // Total trips by hour: PER-HOUR series for the selected date, covering BOTH shifts
-// — Day (06→18) and Night (19→05) — mapped onto the operational-day axis. Each bar
+// — Day (06→17) and Night (18→05) — mapped onto the operational-day axis. Each bar
 // is that hour's own trips (NOT a running total), so a bar of 10 means 10 trips in
 // that hour. Hours after the selected (Current) hour stay empty (they haven't
 // happened yet), so the chart fills exactly up to the "Current HH:00" marker.
 const hourlyChart = { W: 1100, H: 240, padL: 36, padR: 12, padT: 18, padB: 38 };
-const DAY_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
-const NIGHT_HOURS = [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
+const DAY_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const NIGHT_HOURS = [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
 // X-axis order: operational day, starting at the Day-shift start (06) and running
-// chronologically through the Night shift — 06,07,…,18,19,…,23,00,…,05 — instead
+// chronologically through the Night shift — 06,07,…,17,18,…,23,00,…,05 — instead
 // of plain calendar order 00→23.
 const HOUR_ORDER = [...DAY_HOURS, ...NIGHT_HOURS];
 // Wall-clock start of a (date, shift, hour) slot. Night hours 00–05 happen on the
