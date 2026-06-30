@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watchEffect } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuth } from "../../composables/useAuth.js";
 import { useShiftSelection } from "../../composables/useShiftSelection.js";
@@ -15,7 +15,7 @@ const isManager = computed(() => user.value?.role === "manager");
 // (managers keep it — they aren't kiosk-locked).
 const { isMobile } = useIsMobile();
 const hideNav = computed(() => isMobile.value && isAdmin.value);
-const { selection, setDate, setShiftType, setHour, userAdjusted, markUserAdjusted } = useShiftSelection();
+const { selection, setDate, setShiftType, setHour, userAdjusted, markUserAdjusted, setActivePage } = useShiftSelection();
 
 defineProps({
   subtitle: { type: String, default: "Live" },
@@ -23,6 +23,12 @@ defineProps({
 
 const route = useRoute();
 const router = useRouter();
+
+// Each page keeps its OWN date/shift/hour, so changing the selector here doesn't
+// move the other pages. Activate this page's slot before the auto-clock effects
+// below run. Pages remount on navigation (no keep-alive), so this runs fresh per
+// page; the watch also covers any future keep-alive case.
+watch(() => route.name, (name) => setActivePage(name), { immediate: true });
 
 const handleLogout = () => {
   logout();

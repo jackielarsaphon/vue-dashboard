@@ -475,21 +475,13 @@ const areaBars = computed(() => {
 });
 
 // --- Area status board -------------------------------------------------------
-// Per-pit progress vs the day's plan, shown as cards between the "Production by
-// excavator" and "Production by shift - area" panels. Moved here from the Area
-// production page; the logic mirrors what that page used to render.
+// Per-pit progress vs the day's plan, shown as the "Pit performance" table between
+// the "Production by excavator" and "Production by shift - area" panels. Moved here
+// from the Area production page.
 const fmtT = (n) => Math.round(Number(n)).toLocaleString("en-US");
 
-const PERIOD_LABELS = [
-  "00:00 - 03:00",
-  "03:00 - 06:00",
-  "06:00 - 09:00",
-  "09:00 - 12:00",
-  "12:00 - 15:00",
-  "15:00 - 18:00",
-  "18:00 - 21:00",
-  "21:00 - 00:00",
-];
+// Pill text per status, shown in the Pit performance table.
+const PIT_STATUS_LABEL = { ok: "ON PLAN", warn: "AT RISK", alert: "BEHIND" };
 
 // on plan (ok) ≥100% or no plan; at risk (warn) 85–99%; behind (alert) <85%.
 const statusFor = (actual, target) => {
@@ -499,8 +491,6 @@ const statusFor = (actual, target) => {
   if (p >= 85) return "warn";
   return "alert";
 };
-
-const linePath = (points) => points.map((point, i) => `${i ? "L" : "M"}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
 
 // PLAN per pit = the day's Plan Production total (Waste + Ore).
 const dailyAreaPlan = computed(() => {
@@ -549,59 +539,24 @@ const statusCounts = computed(() => {
   return counts;
 });
 
-const areaCards = computed(() => {
-  const labels = PERIOD_LABELS;
-  const n = labels.length;
-  // Worst-vs-plan first (the board's default "deficit" order).
-  const sorted = [...areaSeries.value].sort((a, b) => a.actual.at(-1) - a.target - (b.actual.at(-1) - b.target));
-
-  return sorted.map((series) => {
-    const planCum = Array.from({ length: n + 1 }, (_, i) => (series.target / n) * i);
-    const actualCum = series.actual;
-    const finalActual = actualCum.at(-1);
-    // No plan (target ≤ 0) can't be a %, so show it as 100% on-plan.
-    const achievement = series.target > 0 ? Math.round((finalActual / series.target) * 100) : 100;
-    const delta = finalActual - series.target;
-    const status = statusFor(finalActual, series.target);
-    const W = 260;
-    const H = 56;
-    const max = Math.max(...planCum, ...actualCum) * 1.05 || 1;
-    const xAt = (i) => (W / n) * i;
-    const yAt = (value) => H - (value / max) * (H - 2) - 1;
-    const planPoints = planCum.map((value, i) => ({ x: xAt(i), y: yAt(value) }));
-    const actualPoints = actualCum.map((value, i) => ({ x: xAt(i), y: yAt(value) }));
-    const plan = linePath(planPoints);
-    const actual = linePath(actualPoints);
-    const reversedPlan = [...planPoints].reverse().map((point) => `L${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-    const diffArea = `${actual} ${reversedPlan} Z`;
-    const currentPoint = actualPoints.at(-1);
-    const periods = labels.map((label, i) => {
-      const actualPeriod = actualCum[i + 1];
-      const planPeriod = planCum[i + 1];
-      let periodStatus = "future";
-      if (actualPeriod != null) {
-        periodStatus = actualPeriod >= planPeriod ? "ok" : actualPeriod >= planPeriod * 0.85 ? "warn" : "alert";
-      }
-      return { label, hour: parseInt(label.slice(0, 2), 10), status: periodStatus };
-    });
-
-    return {
-      ...series,
-      W,
-      H,
-      finalActual,
-      achievement,
-      delta,
-      status,
-      plan,
-      actual,
-      diffArea,
-      fillColor: finalActual >= planCum.at(-1) ? "var(--ok)" : "var(--alert)",
-      currentPoint,
-      periods,
-    };
-  });
-});
+// One row per pit, worst-vs-plan first (the board's default "deficit" order).
+const areaCards = computed(() =>
+  [...areaSeries.value]
+    .sort((a, b) => a.actual.at(-1) - a.target - (b.actual.at(-1) - b.target))
+    .map((series) => {
+      const finalActual = series.actual.at(-1);
+      // No plan (target ≤ 0) can't be a %, so show it as 100% on-plan.
+      const achievement = series.target > 0 ? Math.round((finalActual / series.target) * 100) : 100;
+      return {
+        area: series.area,
+        target: series.target,
+        finalActual,
+        achievement,
+        delta: finalActual - series.target,
+        status: statusFor(finalActual, series.target),
+      };
+    }),
+);
 
 </script>
 
@@ -835,7 +790,7 @@ const areaCards = computed(() => {
           </div>
         </div>
 
-        <div class="area-board">
+        <div class="area-board panel">
           <div class="status-board-head">
             <h2 class="board-h">Area status board</h2>
             <div class="board-legend">
@@ -845,56 +800,32 @@ const areaCards = computed(() => {
             </div>
           </div>
 
-          <div v-if="areaCards.length" class="area-grid">
-            <div v-for="series in areaCards" :key="series.area" class="area-tile" :class="`area-tile-${series.status}`">
-              <div class="area-tile-bar" />
-              <div class="area-tile-body">
-                <div class="area-tile-head">
-                  <div class="area-tile-id">
-                    <span class="area-tile-dot" />
-                    <h2>{{ series.area }}</h2>
-                  </div>
-                  <div class="area-tile-pct mono" :class="`ach-${series.status}`">
-                    {{ series.achievement }}<span class="pct-sign">%</span>
-                  </div>
-                </div>
-
-                <div class="area-tile-numbers">
-                  <div class="num-block">
-                    <span class="num-k">Actual</span>
-                    <span class="num-v mono">{{ fmtT(series.finalActual) }}<span class="num-u">t</span></span>
-                  </div>
-                  <div class="num-block">
-                    <span class="num-k">Plan</span>
-                    <span class="num-v mono num-v-soft">{{ fmtT(series.target) }}<span class="num-u">t</span></span>
-                  </div>
-                  <div class="num-block num-block-delta">
-                    <span class="num-k">vs plan</span>
-                    <span class="num-v mono" :class="series.delta >= 0 ? 'pos' : 'neg'">
-                      {{ series.delta >= 0 ? "+ " : "- " }}{{ fmtT(Math.abs(series.delta)) }}<span class="num-u">t</span>
-                    </span>
-                  </div>
-                </div>
-
-                <svg :viewBox="`0 0 ${series.W} ${series.H}`" class="spark" preserveAspectRatio="none">
-                  <path :d="series.diffArea" :fill="series.fillColor" opacity="0.14" />
-                  <path :d="series.plan" class="plan-line" />
-                  <path :d="series.actual" class="actual-line" :style="{ stroke: `var(--${series.status === 'alert' ? 'alert' : series.status === 'warn' ? 'warn' : 'ok'})` }" />
-                  <circle
-                    :cx="series.currentPoint.x"
-                    :cy="series.currentPoint.y"
-                    r="2.5"
-                    :fill="`var(--${series.status === 'alert' ? 'alert' : series.status === 'warn' ? 'warn' : 'ok'})`"
-                  />
-                </svg>
-
-                <div class="period-dots">
-                  <div v-for="period in series.periods" :key="period.label" class="pd-cell" :class="`pd-${period.status}`" :title="period.label">
-                    <div class="pd-bar" />
-                    <div class="pd-hour mono">{{ period.hour }}</div>
-                  </div>
-                </div>
-              </div>
+          <div v-if="areaCards.length" class="pit-perf">
+            <div class="pit-row pit-head">
+              <span class="pit-c-pit">PIT</span>
+              <span class="pit-c-status">STATUS</span>
+              <span class="pit-c-num">ACTUAL · t</span>
+              <span class="pit-c-num">PLAN · t</span>
+              <span class="pit-c-bar">ACHIEVEMENT</span>
+              <span class="pit-c-pct">%</span>
+              <span class="pit-c-num">VARIANCE · t</span>
+            </div>
+            <div v-for="series in areaCards" :key="series.area" class="pit-row">
+              <span class="pit-c-pit pit-code">{{ series.area }}</span>
+              <span class="pit-c-status">
+                <span class="pit-pill" :class="`pit-pill-${series.status}`">{{ PIT_STATUS_LABEL[series.status] }}</span>
+              </span>
+              <span class="pit-c-num mono">{{ fmtT(series.finalActual) }}</span>
+              <span class="pit-c-num mono pit-soft">{{ fmtT(series.target) }}</span>
+              <span class="pit-c-bar">
+                <span class="pit-bar">
+                  <span class="pit-bar-fill" :class="`pit-bar-${series.status}`" :style="{ width: `${Math.min(100, series.achievement)}%` }" />
+                </span>
+              </span>
+              <span class="pit-c-pct mono" :class="`pit-pct-${series.status}`">{{ series.achievement }}%</span>
+              <span class="pit-c-num mono" :class="series.delta >= 0 ? 'pit-pos' : 'pit-neg'">
+                {{ series.delta >= 0 ? "+" : "−" }}{{ fmtT(Math.abs(series.delta)) }}
+              </span>
             </div>
           </div>
         </div>
@@ -1050,15 +981,91 @@ const areaCards = computed(() => {
 
 <style scoped>
 /* The area status board sits in the narrow right column (col-side), between the
-   excavator and shift-area panels. Override the page-wide 4-column area grid so
-   the cards reflow to fit the column instead of squeezing into 4 tiny columns. */
+   excavator and shift-area panels, as a compact "Pit performance" table — one row
+   per pit: code, status pill, actual, plan, achievement bar, %, and variance. */
 .area-board {
   display: flex;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
 }
-.area-board .area-grid {
-  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+.pit-perf {
+  display: flex;
+  flex-direction: column;
+}
+.pit-row {
+  display: grid;
+  grid-template-columns: minmax(52px, auto) minmax(58px, auto) minmax(48px, 1fr) minmax(48px, 1fr) minmax(70px, 2.2fr) 42px minmax(58px, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.pit-head {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 5px;
+}
+.pit-row:last-child {
+  border-bottom: none;
+}
+.pit-head span {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.pit-c-num,
+.pit-c-pct {
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink);
+}
+.pit-soft { color: var(--ink-3); font-weight: 500; }
+.pit-code {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.pit-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pit-pill-ok { background: color-mix(in oklab, var(--ok) 16%, transparent); color: var(--ok); }
+.pit-pill-warn { background: color-mix(in oklab, var(--warn) 16%, transparent); color: var(--warn); }
+.pit-pill-alert { background: color-mix(in oklab, var(--alert) 16%, transparent); color: var(--alert); }
+.pit-bar {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+.pit-bar-fill { display: block; height: 100%; border-radius: 999px; }
+.pit-bar-ok { background: var(--ok); }
+.pit-bar-warn { background: var(--warn); }
+.pit-bar-alert { background: var(--alert); }
+.pit-pct-ok { color: var(--ok); font-weight: 700; }
+.pit-pct-warn { color: var(--warn); font-weight: 700; }
+.pit-pct-alert { color: var(--alert); font-weight: 700; }
+.pit-pos { color: var(--ok); font-weight: 600; }
+.pit-neg { color: var(--alert); font-weight: 600; }
+
+/* Stacking the board one card per row makes the right column (col-side) tall.
+   Without this the grid stretches the left column's panels to match, leaving a
+   big empty white box under the Excavator detail table. Pack them to the top so
+   panels keep their natural height and the leftover space is plain background. */
+.col-main {
+  align-content: start;
 }
 </style>
