@@ -456,6 +456,45 @@ table.data tfoot td {
   padding-top: 8px;
   padding-bottom: 8px;
 }
+/* Production report — grouped Day/Night shift table on Fleet overview. A two-row
+   header groups Waste/Ore/Total under Day and Night, so headers aren't sticky
+   (two stuck rows would overlap) — the table is short enough not to need it. */
+table.data.report-table th { position: static; text-align: right; }
+table.data.report-table th:first-child,
+table.data.report-table td:first-child { text-align: center; }
+table.data.report-table th.num,
+table.data.report-table td.num { text-align: right; }
+table.data.report-table thead .grp {
+  text-align: center;
+  letter-spacing: 0.16em;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+table.data.report-table thead .grp-day { color: var(--day); }
+table.data.report-table thead .grp-night { color: var(--night); }
+table.data.report-table .strong { color: var(--ink); font-weight: 600; }
+table.data.report-table .report-total { background: var(--panel-2); }
+table.data.report-table .report-var.neg,
+table.data.report-table tfoot .report-var.neg { color: var(--alert); font-weight: 600; }
+table.data.report-table .report-var.pos,
+table.data.report-table tfoot .report-var.pos { color: var(--ok); font-weight: 600; }
+.report-empty td { text-align: center; color: var(--ink-3); padding: 16px 8px; }
+.prio {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+}
+.prio-1 { background: var(--alert); }
+.prio-2 { background: #e67e22; }
+.prio-3 { background: #e6b800; color: #3a2c00; }
+.prio-4 { background: var(--ok); }
+
 .sparkbar { width: 80px; background: var(--line-soft); border-radius: 2px; overflow: hidden; }
 .sparkbar > div { height: 100%; border-radius: 2px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
