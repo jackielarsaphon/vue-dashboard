@@ -24,9 +24,10 @@ const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
 // so the Remark column stays meaningful instead of always reading "Normal".
 const STATUS_REMARK = { ok: "Normal", warn: "Watch", alert: "Down" };
 
-// Waste series colour, shared by every chart's Waste legend + bars (one place to
-// retune). Was brown #8a5a2b.
-const WASTE_COLOR = "#45A9C4";
+// Waste series colour, shared by every chart's Waste legend + bars AND the Total
+// Waste KPI card. Sourced from the --waste CSS var so there's a single place to
+// retune (src/styles/base.css). Was brown #8a5a2b.
+const WASTE_COLOR = "var(--waste)";
 
 const [t, setTweak] = useTweaks({
   accent: "#d99a00",
@@ -97,7 +98,7 @@ const kpiTargets = computed(() => ({
 
 const kpiCards = computed(() => [
   { label: "Total Production", k: { ...totals.value.production, target: kpiTargets.value.production }, accent: "var(--accent)", kind: "prod" },
-  { label: "Total Waste", k: { ...totals.value.waste, target: kpiTargets.value.waste }, accent: "#8a5a2b", kind: "waste" },
+  { label: "Total Waste", k: { ...totals.value.waste, target: kpiTargets.value.waste }, accent: WASTE_COLOR, kind: "waste" },
   { label: "Total ORE", k: { ...totals.value.ore, target: kpiTargets.value.ore }, accent: "var(--ore)", kind: "ore" },
 ]);
 
@@ -711,7 +712,7 @@ const reportTotals = computed(() => {
               </text>
             </g>
             <g v-for="bar in hourlyBars" :key="bar.t" :class="{ current: bar.isCurrent }">
-              <rect :x="bar.x" :y="bar.baseY - bar.softH" :width="bar.bw" :height="bar.softH" :fill="WASTE_COLOR" :opacity="bar.isCurrent ? 1 : 0.88" />
+              <rect :x="bar.x" :y="bar.baseY - bar.softH" :width="bar.bw" :height="bar.softH" :style="{ fill: WASTE_COLOR }" :opacity="bar.isCurrent ? 1 : 0.88" />
               <rect :x="bar.x" :y="bar.baseY - bar.softH - bar.oreH" :width="bar.bw" :height="bar.oreH" fill="var(--ore)" />
               <!-- ดิน (Waste) and แร่ (ORE) shown as SEPARATE numbers — not a combined
                    total: Waste inside its (usually larger) brown segment, and ORE in

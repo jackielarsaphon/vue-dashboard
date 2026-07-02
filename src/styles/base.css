@@ -75,6 +75,9 @@
   --chip: #2d2614;
   --grid: #3a3018;
 }
+/* Waste series colour — used by the charts AND the Total Waste KPI card. Single place
+   to retune the whole Waste palette (was brown #8a5a2b). */
+:root { --waste: #45A9C4; }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
@@ -259,7 +262,7 @@ button, input, select { font: inherit; }
   width: 3px;
   background: var(--accent);
 }
-.kpi-waste::before { background: #8a5a2b; }
+.kpi-waste::before { background: var(--waste); }
 .kpi-ore::before { background: var(--ore); }
 .kpi-fleet::before { background: var(--ok); }
 .kpi-head {
