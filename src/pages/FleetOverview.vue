@@ -530,8 +530,9 @@ const productionReport = computed(() => {
       const priority = r.planPriority != null ? r.planPriority : reportPriority(achievement);
       return { ...r, dayTotal, nightTotal, total, variance, priority };
     })
-    // Ordered by pit code, like the printed report.
-    .sort((a, b) => a.pit.localeCompare(b.pit));
+    // Ordered by Priority (1 = most behind, first) so the number column reads in
+    // order; pit code breaks ties so same-priority pits keep a stable sequence.
+    .sort((a, b) => a.priority - b.priority || a.pit.localeCompare(b.pit));
 });
 
 const reportTotals = computed(() => {
@@ -650,10 +651,10 @@ const reportTotals = computed(() => {
                   <td><StatusDot :status="row.status" /></td>
                   <td class="exc">{{ row.exc }}</td>
                   <td class="mono">{{ row.trucks }}</td>
-                  <td><span class="chip">{{ row.area }}</span></td>
-                  <td><span class="cell-pill mono" :class="row.trip <= 6 ? 'danger' : 'good'">{{ row.trip }}</span></td>
-                  <td><span class="cell-pill mono" :class="row.waste <= 150 ? 'danger' : 'good'">{{ row.waste ? fmt(row.waste) : "–" }}</span></td>
-                  <td><span class="cell-pill mono" :class="row.ore <= 150 ? 'danger' : 'good'">{{ row.ore ? fmt(row.ore) : "–" }}</span></td>
+                  <td class="fill-cell area-cell mono">{{ row.area }}</td>
+                  <td class="fill-cell mono" :class="row.trip <= 6 ? 'danger' : 'good'">{{ row.trip }}</td>
+                  <td class="fill-cell mono" :class="row.waste <= 150 ? 'danger' : 'good'">{{ row.waste ? fmt(row.waste) : "–" }}</td>
+                  <td class="fill-cell mono" :class="row.ore <= 150 ? 'danger' : 'good'">{{ row.ore ? fmt(row.ore) : "–" }}</td>
                   <td class="remark rmk">
                     <span class="remark-inner">
                       <StatusDot v-if="row.status !== 'ok'" :status="row.status" />
@@ -949,7 +950,7 @@ const reportTotals = computed(() => {
           </thead>
           <tbody>
             <tr v-for="r in productionReport" :key="r.pit">
-              <td><span class="prio" :class="`prio-${r.priority}`">{{ r.priority }}</span></td>
+              <td class="prio-cell" :class="`prio-${r.priority}`">{{ r.priority }}</td>
               <td class="exc">{{ r.pit }}</td>
               <td class="num mono">{{ fmt0(r.day.waste) }}</td>
               <td class="num mono">{{ fmt0(r.day.ore) }}</td>
