@@ -441,11 +441,21 @@ table.data td.fill-cell {
 }
 table.data td.fill-cell.danger { background: var(--alert); }
 table.data td.fill-cell.good { background: var(--ok); }
-/* Area (pit code) — a full-cell fill too, but a single neutral brand colour (gold)
-   with dark text: it's an identifier, not a good/bad status. */
-table.data td.fill-cell.area-cell {
+/* Area (pit code) — gold like the fill cells, but a rounded tag inset in the cell
+   (not edge-to-edge): the td keeps a little padding so the rounded corners and the
+   gaps between rows show. Dark text since it's an identifier, not a good/bad status. */
+table.data td.area-cell {
+  padding: 3px 6px;
+  text-align: center;
+}
+table.data td.area-cell .area-tag {
+  display: block;
   background: var(--accent);
   color: var(--ink);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-family: var(--font-mono);
+  font-weight: 700;
   letter-spacing: 0.04em;
 }
 .remark { color: var(--ink-2); }
