@@ -65,9 +65,13 @@ const downloadImage = async () => {
     if (document.fonts?.ready) await document.fonts.ready;
     const rootStyles = getComputedStyle(document.documentElement);
     const bg = rootStyles.getPropertyValue("--bg").trim() || getComputedStyle(document.body).backgroundColor || "#ffffff";
+    // Render at ~4K width for a crisp export: scale so the output is at least 3840px
+    // wide whatever the screen size, capped at 4× to keep memory sane and never below
+    // the 2× we used before.
+    const scale = Math.min(4, Math.max(2, 3840 / (node.scrollWidth || 3840)));
     const canvas = await html2canvas(node, {
       backgroundColor: bg,
-      scale: 2,
+      scale,
       useCORS: true,
       logging: false,
       windowWidth: node.scrollWidth,
