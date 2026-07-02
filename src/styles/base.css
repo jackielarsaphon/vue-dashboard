@@ -427,35 +427,27 @@ table.data .exc { font-family: var(--font-mono); font-weight: 600; color: var(--
   letter-spacing: 0.04em;
   color: var(--ink-2);
 }
-/* Trip / Waste BCM / ORE BCM cells — the colour fills the whole cell with the value
-   centred on top (matching the Priority column), instead of a small badge. Green =
-   good (above threshold), red = danger (at/below threshold). */
-table.data td.fill-cell {
-  padding: 0;
-  text-align: center;
-  vertical-align: middle;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-}
-table.data td.fill-cell.danger { background: var(--alert); }
-table.data td.fill-cell.good { background: var(--ok); }
-/* Area (pit code) — gold like the fill cells, but a rounded tag inset in the cell
-   (not edge-to-edge): the td keeps a little padding so the rounded corners and the
-   gaps between rows show. Dark text since it's an identifier, not a good/bad status. */
-table.data td.area-cell {
+/* Rounded value tags in the Excavator detail table — a coloured rounded block inset
+   in the cell (the td keeps small padding so the corners and the gaps between rows
+   show). Trip / Waste BCM / ORE BCM colour by status (green good / red danger); Area
+   is gold with dark text (an identifier, not a good/bad status). */
+table.data td.tag-cell {
   padding: 3px 6px;
   text-align: center;
 }
-table.data td.area-cell .area-tag {
+table.data td.tag-cell > span {
   display: block;
-  background: var(--accent);
-  color: var(--ink);
   border-radius: 6px;
   padding: 4px 6px;
   font-family: var(--font-mono);
   font-weight: 700;
+  color: #fff;
+}
+table.data td.tag-cell > span.good { background: var(--ok); }
+table.data td.tag-cell > span.danger { background: var(--alert); }
+table.data td.tag-cell > span.area {
+  background: var(--accent);
+  color: var(--ink);
   letter-spacing: 0.04em;
 }
 .remark { color: var(--ink-2); }
