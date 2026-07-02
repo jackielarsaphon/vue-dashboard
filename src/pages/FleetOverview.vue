@@ -38,7 +38,7 @@ watchEffect(() => {
 });
 
 const { selection } = useShiftSelection();
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
+const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, placementTrucksFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
 const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
 const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
 
@@ -147,7 +147,6 @@ const excRows = computed(() =>
     // are surfaced too, so they don't silently disappear from the dashboard.
     const areaTrips = new Map(); // pit -> trips this hour (where the unit really worked)
     const noteAreas = new Set(); // pits where it only wrote a note (no trips)
-    const models = new Set(); // distinct Dump models this unit hauled with this hour
     const activePlacementIds = new Set();
     Object.entries(entries.value).forEach(([placementId, entry]) => {
       if (entry.excavatorId !== excavator.uid) return;
@@ -157,8 +156,6 @@ const excRows = computed(() =>
         if (isWaste(row.material)) waste += total;
         else ore += total;
         entryTrips += total;
-        // Trucks = how many different Dump models actually hauled (trips logged).
-        if (total > 0 && row.model) models.add(row.model);
       });
       if (entryTrips > 0) {
         if (entry.area) areaTrips.set(entry.area, (areaTrips.get(entry.area) || 0) + entryTrips);
@@ -178,9 +175,9 @@ const excRows = computed(() =>
     const status = hasNote && trip === 0 ? "alert" : placements[0]?.status || excavator.status;
     return {
       exc: excavator.name,
-      // Trucks = count of distinct Dump models the unit hauled with this hour,
-      // derived from the trip rows' Dump model (not a manually-keyed fleet count).
-      trucks: models.size,
+      // Trucks = the Trucks in fleet value entered on Data entry for this hour
+      // (per-hour, summed across this unit's active placements).
+      trucks: placements.reduce((sum, p) => sum + (Number(placementTrucksFor(p.placementId)) || 0), 0),
       area: pickArea(areaTrips, noteAreas),
       status,
       remark: note || STATUS_REMARK[status] || "Normal",
@@ -237,7 +234,7 @@ const productionRows = computed(() => [...excHourRows.value].sort((a, b) => b.tr
 const fleetStats = computed(() => {
   // Mirror the Excavator detail table exactly, hour-scoped: Excavators = the units
   // active this hour (its rows), Dump trucks = the sum of that table's Trucks column
-  // (distinct Dump models). Both follow the selected hour like the table does.
+  // (the Trucks in fleet values). Both follow the selected hour like the table does.
   const active = excHourRows.value;
   const excavatorCount = active.length;
   const trucks = active.reduce((sum, row) => sum + row.trucks, 0);
