@@ -479,21 +479,22 @@ table.data.report-table tfoot .report-var.neg { color: var(--alert); font-weight
 table.data.report-table .report-var.pos,
 table.data.report-table tfoot .report-var.pos { color: var(--ok); font-weight: 600; }
 .report-empty td { text-align: center; color: var(--ink-3); padding: 16px 8px; }
-.prio {
-  display: inline-block;
-  min-width: 22px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
+/* Priority cell — the colour fills the whole cell (full-bleed band) with the
+   number centred on top, instead of a small badge. Colour still encodes urgency:
+   1 red (most behind plan) … 4 green (on plan). Yellow keeps dark text for contrast. */
+table.data.report-table td.prio-cell {
+  padding: 0;
   text-align: center;
+  vertical-align: middle;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
   color: #fff;
 }
-.prio-1 { background: var(--alert); }
-.prio-2 { background: #e67e22; }
-.prio-3 { background: #e6b800; color: #3a2c00; }
-.prio-4 { background: var(--ok); }
+table.data.report-table td.prio-1 { background: var(--alert); }
+table.data.report-table td.prio-2 { background: #e67e22; }
+table.data.report-table td.prio-3 { background: #e6b800; color: #3a2c00; }
+table.data.report-table td.prio-4 { background: var(--ok); }
 
 .sparkbar { width: 80px; background: var(--line-soft); border-radius: 2px; overflow: hidden; }
 .sparkbar > div { height: 100%; border-radius: 2px; }

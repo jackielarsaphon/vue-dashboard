@@ -530,8 +530,9 @@ const productionReport = computed(() => {
       const priority = r.planPriority != null ? r.planPriority : reportPriority(achievement);
       return { ...r, dayTotal, nightTotal, total, variance, priority };
     })
-    // Ordered by pit code, like the printed report.
-    .sort((a, b) => a.pit.localeCompare(b.pit));
+    // Ordered by Priority (1 = most behind, first) so the number column reads in
+    // order; pit code breaks ties so same-priority pits keep a stable sequence.
+    .sort((a, b) => a.priority - b.priority || a.pit.localeCompare(b.pit));
 });
 
 const reportTotals = computed(() => {
@@ -949,7 +950,7 @@ const reportTotals = computed(() => {
           </thead>
           <tbody>
             <tr v-for="r in productionReport" :key="r.pit">
-              <td><span class="prio" :class="`prio-${r.priority}`">{{ r.priority }}</span></td>
+              <td class="prio-cell" :class="`prio-${r.priority}`">{{ r.priority }}</td>
               <td class="exc">{{ r.pit }}</td>
               <td class="num mono">{{ fmt0(r.day.waste) }}</td>
               <td class="num mono">{{ fmt0(r.day.ore) }}</td>
