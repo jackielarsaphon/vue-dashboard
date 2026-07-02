@@ -66,7 +66,9 @@ const fetchPlans = async (date) => {
         const shiftType = shiftTypeById[row.shift_id];
         if (!shiftType) return;
         const bucket = next[planKey(date, shiftType)] || (next[planKey(date, shiftType)] = {});
-        bucket[row.pattern_code] = { soil: Number(row.soil_tonnes) || 0, ore: Number(row.ore_tonnes) || 0, priority: null };
+        // priority tri-state: undefined = no plan_priorities record (eligible for
+        // carry-forward) · null = explicitly cleared this day (stays blank) · number = own.
+        bucket[row.pattern_code] = { soil: Number(row.soil_tonnes) || 0, ore: Number(row.ore_tonnes) || 0, priority: undefined };
       });
     }
 
@@ -83,18 +85,20 @@ const fetchPlans = async (date) => {
           const shiftType = shiftTypeById[row.shift_id];
           if (!shiftType) return;
           const bucket = next[planKey(date, shiftType)] || (next[planKey(date, shiftType)] = {});
-          const entry = bucket[row.pattern_code] || (bucket[row.pattern_code] = { soil: 0, ore: 0, priority: null });
+          const entry = bucket[row.pattern_code] || (bucket[row.pattern_code] = { soil: 0, ore: 0, priority: undefined });
+          // A row that EXISTS records the state: null = explicit clear, number = own.
           entry.priority = row.priority == null ? null : Number(row.priority);
         });
       }
     }
   }
 
-  // Carry-forward: the most recent PRIOR day's hand-set priority per pattern. Two
-  // steps (no FK embedding needed): prior shifts, then their priorities; for each
-  // pattern keep the value from the latest prior shift_date. Forward-only across
-  // dates — a later day inherits an earlier day's value, never the reverse.
-  const carried = {};
+  // Carry-forward: the most recent PRIOR day's priority STATE per pattern. Two steps
+  // (no FK embedding needed): prior shifts, then their priorities; for each pattern
+  // keep the record from the latest prior shift_date — a number carries the value, a
+  // null (explicit clear on a later day) carries "blank" and thus overrides an older
+  // value. Forward-only across dates; a day never inherits from a later one.
+  const carried = {}; // code -> number (carry value) | null (carry blank)
   if (!planPrioritiesMissing) {
     const { data: priorShifts, error: priorShiftErr } = await supabase
       .from("shifts")
@@ -112,14 +116,13 @@ const fetchPlans = async (date) => {
       if (isMissingTableError(priorPrioErr)) {
         planPrioritiesMissing = true;
       } else if (priorPrio) {
-        const latestByCode = {}; // pattern_code -> shift_date the chosen value came from
+        const latestByCode = {}; // pattern_code -> shift_date the chosen record came from
         priorPrio.forEach((row) => {
-          if (row.priority == null) return;
           const d = dateById[row.shift_id];
           if (!d) return;
           if (!latestByCode[row.pattern_code] || d > latestByCode[row.pattern_code]) {
             latestByCode[row.pattern_code] = d;
-            carried[row.pattern_code] = Number(row.priority);
+            carried[row.pattern_code] = row.priority == null ? null : Number(row.priority);
           }
         });
       }
@@ -143,15 +146,19 @@ const getDatePlans = (date) => {
   const merged = {};
   ["Day", "Night"].forEach((shiftType) => {
     Object.entries(getPlans(date, shiftType)).forEach(([code, { soil, ore, priority }]) => {
-      const cur = merged[code] || { soil: 0, ore: 0, priority: null };
-      // Priority is written to the canonical shift only; keep the first non-null.
-      merged[code] = { soil: cur.soil + soil, ore: cur.ore + ore, priority: cur.priority ?? (priority ?? null) };
+      const cur = merged[code] || { soil: 0, ore: 0, priority: undefined };
+      // Priority lives on the canonical shift only; keep the first DEFINED state
+      // (undefined = no record yet, so let the other shift / carry decide).
+      merged[code] = { soil: cur.soil + soil, ore: cur.ore + ore, priority: cur.priority !== undefined ? cur.priority : priority };
     });
   });
-  // Any pit with no OWN priority this date falls back to the carried-forward default
-  // from the most recent prior day (own value always wins; carried never persists here).
+  // Resolve the tri-state to the displayed value (number | null):
+  //   number    -> own hand-set priority
+  //   null      -> explicitly cleared this day → stays blank (does NOT carry)
+  //   undefined -> no own record → fall back to the carried-forward state
+  //                (carried is number to carry a value, or null to carry blank)
   Object.keys(merged).forEach((code) => {
-    if (merged[code].priority == null && carried[code] != null) merged[code].priority = carried[code];
+    if (merged[code].priority === undefined) merged[code].priority = carried[code] ?? null;
   });
   return merged;
 };
@@ -217,8 +224,10 @@ const savePlan = async (patternCode, { soil = 0, ore = 0 } = {}) => {
     ...plansByKey.value,
     [canonicalKey]: {
       ...(plansByKey.value[canonicalKey] || {}),
-      // Keep any hand-set priority — saving soil/ore must not wipe it.
-      [code]: { soil: Number(soil) || 0, ore: Number(ore) || 0, priority: plansByKey.value[canonicalKey]?.[code]?.priority ?? null },
+      // Preserve the existing priority tri-state (undefined = no record / null =
+      // cleared / number = own) — saving soil/ore must neither wipe it nor turn a
+      // "no record" into an explicit clear.
+      [code]: { soil: Number(soil) || 0, ore: Number(ore) || 0, priority: plansByKey.value[canonicalKey]?.[code]?.priority },
     },
     [otherKey]: otherBucket,
   };
@@ -226,8 +235,9 @@ const savePlan = async (patternCode, { soil = 0, ore = 0 } = {}) => {
 };
 
 // Upsert one pattern's hand-set Priority (1–4) for the selected date, on the same
-// canonical shift as savePlan. Blank / out-of-range clears it. Persists to
-// plan_priorities; keeps only the optimistic cache until that table is migrated.
+// canonical shift as savePlan. Blank / out-of-range writes an EXPLICIT clear (a null
+// row) so the day stays blank rather than inheriting a carried-forward value. Persists
+// to plan_priorities; keeps only the optimistic cache until that table is migrated.
 const savePriority = async (patternCode, value) => {
   const code = String(patternCode || "").trim();
   if (!code) return false;
@@ -242,11 +252,8 @@ const savePriority = async (patternCode, value) => {
   if (planPrioritiesMissing) return true;
   const shiftId = await ensureShift(selection.date, CANONICAL_SHIFT);
   if (!shiftId) return false;
-  if (priority == null) {
-    const { error } = await supabase.from("plan_priorities").delete().eq("shift_id", shiftId).eq("pattern_code", code);
-    if (isMissingTableError(error)) planPrioritiesMissing = true;
-    return true;
-  }
+  // Clearing writes an explicit null row (not a delete): it records "blank for this
+  // day" so getDatePlans keeps it blank instead of falling back to a carried value.
   const { error } = await supabase.from("plan_priorities").upsert(
     { shift_id: shiftId, pattern_code: code, priority, updated_at: new Date().toISOString() },
     { onConflict: "shift_id,pattern_code" },
