@@ -32,13 +32,14 @@ const {
   getBucket,
   truckModels,
   addAreaExcavator,
-  updateAreaExcavator,
   reassignPlacementExcavator,
   removeAreaExcavatorPlacement,
   placementNoteFor,
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
+  placementTrucksFor,
+  setPlacementTrucks,
   placementEditorsFor,
   placementVisibleNow,
   removePlacementFromHour,
@@ -68,7 +69,7 @@ const editedByName = (placement) => {
   return nameOf(editedBy || entries.value[slotKeyOf(placement)]?.createdBy);
 };
 
-const { getDatePlans, savePlan, removePlan } = usePlanProduction();
+const { getDatePlans, savePlan, savePriority, removePlan } = usePlanProduction();
 
 const TRUCKS = computed(() => truckModels.value.map((row) => row.code));
 
@@ -153,7 +154,7 @@ const commitPit = (rawName) => {
   const name = String(rawName ?? "").trim().toUpperCase();
   if (!name || pits.value.some((pit) => pit.name === name)) return;
   pits.value.push({ name });
-  pitAmounts.value[name] = { soil: "", ore: "" };
+  pitAmounts.value[name] = { soil: "", ore: "", priority: "" };
   selectedPitName.value = name;
   newPitName.value = "";
   // Persist the new pattern immediately (with zero amounts) so it survives a
@@ -199,6 +200,12 @@ const updatePitAmount = (type, value) => {
   if (!selectedPitName.value) return;
   pitAmounts.value[selectedPitName.value][type] = formatCommaNumber(value);
 };
+// Priority is a single 1–4 digit, not a tonnage — keep only 1–4 (blank clears it).
+const updatePitPriority = (value) => {
+  if (!selectedPitName.value) return;
+  const digit = String(value ?? "").replace(/\D/g, "").slice(0, 1);
+  pitAmounts.value[selectedPitName.value].priority = digit >= "1" && digit <= "4" ? digit : "";
+};
 const parseCommaNumber = (value) => Number(String(value ?? "").replace(/,/g, "")) || 0;
 const selectedPitPlan = computed(() => {
   const values = pitAmounts.value[selectedPitName.value] ?? { soil: "", ore: "" };
@@ -232,6 +239,7 @@ watch(
         {
           soil: plans[name].soil ? plans[name].soil.toLocaleString("en-US") : "",
           ore: plans[name].ore ? plans[name].ore.toLocaleString("en-US") : "",
+          priority: plans[name].priority == null ? "" : String(plans[name].priority),
         },
       ]),
     );
@@ -244,8 +252,9 @@ watch(
 const persistSelectedPit = () => {
   const name = selectedPitName.value;
   if (!name) return;
-  const values = pitAmounts.value[name] ?? { soil: "", ore: "" };
+  const values = pitAmounts.value[name] ?? { soil: "", ore: "", priority: "" };
   savePlan(name, { soil: parseCommaNumber(values.soil), ore: parseCommaNumber(values.ore) });
+  savePriority(name, values.priority);
 };
 const patternFilter = ref("");
 const selectedPatternId = ref("");
@@ -456,10 +465,6 @@ const commitArea = () => {
   addingArea.value = false;
 };
 
-// Edit a placement's per-pit fields (trucks / RL / note) — stored on area_excavators
-// so they're independent per pit.
-const setExc = (placement, patch) => updateAreaExcavator(placement.placementId, patch);
-
 // Status dot for a detail row: red "alert" when a Production note was written for
 // this hour but no trips were entered (a reminder to key the trips), otherwise the
 // placement's own status.
@@ -537,7 +542,10 @@ const deleteExc = async (placement) => {
 // no operational data (trucks / RL / note). Used to stop "+ Add excavator" from
 // piling up empty rows, and to clear them out in one go.
 const isBlankExcavator = (placement) =>
-  !placementHasDateTrips(placement) && !Number(placement.trucks) && !Number(placement.rl) && !String(placementNoteFor(placement.placementId) || "").trim();
+  !placementHasDateTrips(placement) &&
+  !Number(placementTrucksFor(placement.placementId)) &&
+  !Number(placementRlFor(placement.placementId)) &&
+  !String(placementNoteFor(placement.placementId) || "").trim();
 const emptyDetailRows = computed(() => detailRows.value.filter(isBlankExcavator));
 const hasUnusedRow = computed(() => emptyDetailRows.value.length > 0);
 
@@ -804,6 +812,19 @@ onUnmounted(() => {
             @blur="persistSelectedPit"
           />
         </label>
+        <label class="entry-field">
+          <span>Priority</span>
+          <input
+            class="entry-text-input mono"
+            type="text"
+            inputmode="numeric"
+            maxlength="1"
+            placeholder="1-4"
+            :value="pitAmounts[selectedPitName]?.priority"
+            @input="updatePitPriority($event.target.value)"
+            @blur="persistSelectedPit"
+          />
+        </label>
         <div class="pit-next-row">
           <button class="pit-next-btn" type="button" :disabled="!selectedPit" @click="continueToDrillLog">Continue to Excavators -></button>
         </div>
@@ -979,8 +1000,8 @@ onUnmounted(() => {
                   type="number"
                   min="0"
                   placeholder="0"
-                  :value="exc.trucks === 0 ? '' : exc.trucks"
-                  @change="setExc(exc, { trucks: $event.target.value })"
+                  :value="placementTrucksFor(exc.placementId)"
+                  @change="setPlacementTrucks(exc.placementId, $event.target.value)"
                 />
               </div>
               <div class="exc-cell num">
@@ -1026,7 +1047,7 @@ onUnmounted(() => {
           <div class="modal-title">
             <span class="exc mono">{{ openExc.name }}</span>
             <span class="chip">{{ openExc.area }}</span>
-            <span class="sub">{{ openExc.trucks }} trucks - {{ hourLabel }}</span>
+            <span class="sub">{{ placementTrucksFor(openExc.placementId) || 0 }} trucks - {{ hourLabel }}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 16px">
             <div class="modal-loaded">

@@ -147,6 +147,7 @@ const excRows = computed(() =>
     // are surfaced too, so they don't silently disappear from the dashboard.
     const areaTrips = new Map(); // pit -> trips this hour (where the unit really worked)
     const noteAreas = new Set(); // pits where it only wrote a note (no trips)
+    const models = new Set(); // distinct Dump models this unit hauled with this hour
     const activePlacementIds = new Set();
     Object.entries(entries.value).forEach(([placementId, entry]) => {
       if (entry.excavatorId !== excavator.uid) return;
@@ -156,6 +157,8 @@ const excRows = computed(() =>
         if (isWaste(row.material)) waste += total;
         else ore += total;
         entryTrips += total;
+        // Trucks = how many different Dump models actually hauled (trips logged).
+        if (total > 0 && row.model) models.add(row.model);
       });
       if (entryTrips > 0) {
         if (entry.area) areaTrips.set(entry.area, (areaTrips.get(entry.area) || 0) + entryTrips);
@@ -175,7 +178,9 @@ const excRows = computed(() =>
     const status = hasNote && trip === 0 ? "alert" : placements[0]?.status || excavator.status;
     return {
       exc: excavator.name,
-      trucks: placements.reduce((sum, p) => sum + (Number(p.trucks) || 0), 0),
+      // Trucks = count of distinct Dump models the unit hauled with this hour,
+      // derived from the trip rows' Dump model (not a manually-keyed fleet count).
+      trucks: models.size,
       area: pickArea(areaTrips, noteAreas),
       status,
       remark: note || STATUS_REMARK[status] || "Normal",
@@ -230,12 +235,14 @@ const setSort = (key) => {
 const productionRows = computed(() => [...excHourRows.value].sort((a, b) => b.trip - a.trip));
 
 const fleetStats = computed(() => {
-  // Count distinct placed excavators and sum the per-pit truck fleets (placements).
-  const placements = areaExcavators.value;
-  const excavatorCount = new Set(placements.map((placement) => placement.uid)).size;
-  const trucks = placements.reduce((sum, placement) => sum + (Number(placement.trucks) || 0), 0);
+  // Mirror the Excavator detail table exactly, hour-scoped: Excavators = the units
+  // active this hour (its rows), Dump trucks = the sum of that table's Trucks column
+  // (distinct Dump models). Both follow the selected hour like the table does.
+  const active = excHourRows.value;
+  const excavatorCount = active.length;
+  const trucks = active.reduce((sum, row) => sum + row.trucks, 0);
   const ratio = excavatorCount > 0 ? (trucks / excavatorCount).toFixed(1) : "0.0";
-  const tripInHour = excRows.value.reduce((sum, row) => sum + row.trip, 0);
+  const tripInHour = active.reduce((sum, row) => sum + row.trip, 0);
   return { excavators: excavatorCount, trucks, ratio, tripInHour };
 });
 
@@ -483,22 +490,24 @@ const areaBars = computed(() => {
 // daily Total, its Plan Production target and the % variance to plan. Tonnes
 // throughout — the same figures the KPI cards and the Plan column already use.
 //
-// Priority: there's no stored priority field, so it's derived from how far the pit
-// is running behind plan (achievement = Total ÷ Plan) into four bands — 1 (red,
-// worst) … 4 (green, on plan) — so the colour still flags where attention is
-// needed. Swap in a real field here if the plan ever carries one.
+// Priority: use the value hand-set on the Plan Production step when present. When a
+// pit has no priority entered, fall back to a derived band from how far it's running
+// behind plan (achievement = Total ÷ Plan) — 1 (red, worst) … 4 (green, on plan) —
+// so the colour still flags where attention is needed.
 const reportPriority = (achievement) => (achievement < 50 ? 1 : achievement < 75 ? 2 : achievement < 90 ? 3 : 4);
 
 const productionReport = computed(() => {
   const plans = getDatePlans(selection.date);
   const byPit = new Map();
   const ensure = (code) => {
-    if (!byPit.has(code)) byPit.set(code, { pit: code, day: { waste: 0, ore: 0 }, night: { waste: 0, ore: 0 }, plan: 0 });
+    if (!byPit.has(code)) byPit.set(code, { pit: code, day: { waste: 0, ore: 0 }, night: { waste: 0, ore: 0 }, plan: 0, planPriority: null });
     return byPit.get(code);
   };
   // Seed every planned pit so one with a plan but no trips still shows (as behind).
   Object.entries(plans).forEach(([code, p]) => {
-    ensure(code).plan = (Number(p.soil) || 0) + (Number(p.ore) || 0);
+    const stat = ensure(code);
+    stat.plan = (Number(p.soil) || 0) + (Number(p.ore) || 0);
+    stat.planPriority = p.priority == null ? null : Number(p.priority);
   });
   // Sum actual tonnes over all 24 hours of each shift, split Waste vs Ore per pit.
   [["Day", "day"], ["Night", "night"]].forEach(([shiftType, key]) => {
@@ -521,7 +530,8 @@ const productionReport = computed(() => {
       const total = dayTotal + nightTotal;
       const variance = r.plan > 0 ? Math.round(((total - r.plan) / r.plan) * 100) : null;
       const achievement = r.plan > 0 ? (total / r.plan) * 100 : 100;
-      return { ...r, dayTotal, nightTotal, total, variance, priority: reportPriority(achievement) };
+      const priority = r.planPriority != null ? r.planPriority : reportPriority(achievement);
+      return { ...r, dayTotal, nightTotal, total, variance, priority };
     })
     // Ordered by pit code, like the printed report.
     .sort((a, b) => a.pit.localeCompare(b.pit));
@@ -607,73 +617,6 @@ const reportTotals = computed(() => {
             <div class="kpi-unit">Trips this hr</div>
           </div>
         </div>
-      </div>
-    </section>
-
-    <section class="panel report-panel">
-      <div class="panel-head">
-        <h2>Production report</h2>
-        <span class="now-pill mono">{{ selection.date }}</span>
-      </div>
-      <div class="table-wrap">
-        <table class="data tight report-table">
-          <thead>
-            <tr>
-              <th rowspan="2">Priority</th>
-              <th rowspan="2">Pit</th>
-              <th colspan="3" class="grp grp-day">Day</th>
-              <th colspan="3" class="grp grp-night">Night</th>
-              <th rowspan="2" class="num">Total</th>
-              <th rowspan="2" class="num">Plan</th>
-              <th rowspan="2" class="num">% Variance</th>
-            </tr>
-            <tr>
-              <th class="num">Waste</th>
-              <th class="num">Ore</th>
-              <th class="num">Total DS</th>
-              <th class="num">Waste</th>
-              <th class="num">Ore</th>
-              <th class="num">Total NS</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in productionReport" :key="r.pit">
-              <td><span class="prio" :class="`prio-${r.priority}`">{{ r.priority }}</span></td>
-              <td class="exc">{{ r.pit }}</td>
-              <td class="num mono">{{ fmt0(r.day.waste) }}</td>
-              <td class="num mono">{{ fmt0(r.day.ore) }}</td>
-              <td class="num mono strong">{{ fmt0(r.dayTotal) }}</td>
-              <td class="num mono">{{ fmt0(r.night.waste) }}</td>
-              <td class="num mono">{{ fmt0(r.night.ore) }}</td>
-              <td class="num mono strong">{{ fmt0(r.nightTotal) }}</td>
-              <td class="num mono strong report-total">{{ fmt0(r.total) }}</td>
-              <td class="num mono">{{ fmt0(r.plan) }}</td>
-              <td class="num mono report-var" :class="r.variance == null ? '' : r.variance < 0 ? 'neg' : 'pos'">
-                {{ r.variance == null ? "–" : `${r.variance}%` }}
-              </td>
-            </tr>
-            <tr v-if="!productionReport.length" class="report-empty">
-              <td colspan="11">No production or plan for this date.</td>
-            </tr>
-          </tbody>
-          <tfoot v-if="productionReport.length">
-            <tr>
-              <td />
-              <td>Total</td>
-              <td class="num">{{ fmt0(reportTotals.dayWaste) }}</td>
-              <td class="num">{{ fmt0(reportTotals.dayOre) }}</td>
-              <td class="num strong">{{ fmt0(reportTotals.dayTotal) }}</td>
-              <td class="num">{{ fmt0(reportTotals.nightWaste) }}</td>
-              <td class="num">{{ fmt0(reportTotals.nightOre) }}</td>
-              <td class="num strong">{{ fmt0(reportTotals.nightTotal) }}</td>
-              <td class="num strong report-total">{{ fmt0(reportTotals.total) }}</td>
-              <td class="num">{{ fmt0(reportTotals.plan) }}</td>
-              <td class="num report-var" :class="reportTotals.variance == null ? '' : reportTotals.variance < 0 ? 'neg' : 'pos'">
-                {{ reportTotals.variance == null ? "–" : `${reportTotals.variance}%` }}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
       </div>
     </section>
 
@@ -980,6 +923,73 @@ const reportTotals = computed(() => {
         </div>
       </section>
     </main>
+
+    <section class="panel report-panel">
+      <div class="panel-head">
+        <h2>Production report</h2>
+        <span class="now-pill mono">{{ selection.date }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data tight report-table">
+          <thead>
+            <tr>
+              <th rowspan="2">Priority</th>
+              <th rowspan="2">Pit</th>
+              <th colspan="3" class="grp grp-day">Day</th>
+              <th colspan="3" class="grp grp-night">Night</th>
+              <th rowspan="2" class="num">Total</th>
+              <th rowspan="2" class="num">Plan</th>
+              <th rowspan="2" class="num">% Variance</th>
+            </tr>
+            <tr>
+              <th class="num">Waste</th>
+              <th class="num">Ore</th>
+              <th class="num">Total DS</th>
+              <th class="num">Waste</th>
+              <th class="num">Ore</th>
+              <th class="num">Total NS</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in productionReport" :key="r.pit">
+              <td><span class="prio" :class="`prio-${r.priority}`">{{ r.priority }}</span></td>
+              <td class="exc">{{ r.pit }}</td>
+              <td class="num mono">{{ fmt0(r.day.waste) }}</td>
+              <td class="num mono">{{ fmt0(r.day.ore) }}</td>
+              <td class="num mono strong">{{ fmt0(r.dayTotal) }}</td>
+              <td class="num mono">{{ fmt0(r.night.waste) }}</td>
+              <td class="num mono">{{ fmt0(r.night.ore) }}</td>
+              <td class="num mono strong">{{ fmt0(r.nightTotal) }}</td>
+              <td class="num mono strong report-total">{{ fmt0(r.total) }}</td>
+              <td class="num mono">{{ fmt0(r.plan) }}</td>
+              <td class="num mono report-var" :class="r.variance == null ? '' : r.variance < 0 ? 'neg' : 'pos'">
+                {{ r.variance == null ? "–" : `${r.variance}%` }}
+              </td>
+            </tr>
+            <tr v-if="!productionReport.length" class="report-empty">
+              <td colspan="11">No production or plan for this date.</td>
+            </tr>
+          </tbody>
+          <tfoot v-if="productionReport.length">
+            <tr>
+              <td />
+              <td>Total</td>
+              <td class="num">{{ fmt0(reportTotals.dayWaste) }}</td>
+              <td class="num">{{ fmt0(reportTotals.dayOre) }}</td>
+              <td class="num strong">{{ fmt0(reportTotals.dayTotal) }}</td>
+              <td class="num">{{ fmt0(reportTotals.nightWaste) }}</td>
+              <td class="num">{{ fmt0(reportTotals.nightOre) }}</td>
+              <td class="num strong">{{ fmt0(reportTotals.nightTotal) }}</td>
+              <td class="num strong report-total">{{ fmt0(reportTotals.total) }}</td>
+              <td class="num">{{ fmt0(reportTotals.plan) }}</td>
+              <td class="num report-var" :class="reportTotals.variance == null ? '' : reportTotals.variance < 0 ? 'neg' : 'pos'">
+                {{ reportTotals.variance == null ? "–" : `${reportTotals.variance}%` }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
 
     <TweaksPanel>
       <TweakSection label="Theme" />

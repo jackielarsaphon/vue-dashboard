@@ -63,6 +63,10 @@ const currentUserId = () => {
 // Once we learn the placement_editors table isn't there yet (migration not run),
 // stop querying / writing it so we don't spam 404s. Resets on page reload.
 let placementEditorsMissing = false;
+// Same self-disable for placement_trucks (per-hour trucks). Until the migration is
+// run the UI still edits trucks optimistically for the session; writes just don't
+// persist instead of erroring.
+let placementTrucksMissing = false;
 const isMissingTableError = (error) =>
   !!error &&
   (error.code === "42P01" ||
@@ -199,9 +203,13 @@ const draftRowsByKey = ref({});
 // "date_shiftType_hour" -> { [placementId]: note }.
 const notesByKey = ref({});
 // Per-hour RL / bench level (public.placement_rl), same keying ->
-// { [placementId]: rl_meters }. Like notes, RL is hour-scoped so editing this
-// hour never rewrites earlier hours; a new hour carries forward the latest value.
+// { [placementId]: rl_meters }. Hour-scoped: editing one hour never touches any
+// other hour, and each hour shows only its own value (no carry-forward).
 const rlByKey = ref({});
+// Per-hour Trucks in fleet (public.placement_trucks), same keying ->
+// { [placementId]: truck_count }. Hour-scoped exactly like RL — set once per hour,
+// never auto-applied to other hours.
+const trucksByKey = ref({});
 // Per-hour removals (public.placement_removed), same keying ->
 // { [placementId]: true }. Removal is hour-scoped: removing a placement affects
 // ONLY that one hour — every other hour (before and after) keeps its data.
@@ -418,6 +426,27 @@ const fetchDateEntries = async (date) => {
     }
   }
 
+  // Per-hour Trucks in fleet for the date. Best-effort: if the placement_trucks
+  // table hasn't been created yet, this query errors and trucks simply read blank
+  // until the migration is run.
+  const newTrucks = {};
+  if (shiftIds.length && !placementTrucksMissing) {
+    const { data: truckRows, error: trucksError } = await supabase
+      .from("placement_trucks")
+      .select("placement_id, shift_id, log_hour, truck_count")
+      .in("shift_id", shiftIds);
+    if (isMissingTableError(trucksError)) {
+      placementTrucksMissing = true;
+    } else if (!trucksError && truckRows) {
+      truckRows.forEach((row) => {
+        const shiftType = shiftTypeById[row.shift_id];
+        if (!shiftType) return;
+        const key = keyFor(date, shiftType, row.log_hour);
+        (newTrucks[key] = newTrucks[key] || {})[row.placement_id] = row.truck_count;
+      });
+    }
+  }
+
   // Per-hour removals: which placements were removed in which (shift, hour).
   const newRemoved = {};
   if (shiftIds.length) {
@@ -460,6 +489,7 @@ const fetchDateEntries = async (date) => {
   draftRowsByKey.value = {};
   notesByKey.value = newNotes;
   rlByKey.value = newRl;
+  trucksByKey.value = newTrucks;
   removedByKey.value = newRemoved;
   editorsByKey.value = newEditors;
 };
@@ -1009,24 +1039,16 @@ const setPlacementNote = async (placementId, value) => {
   );
 };
 
-// Per-hour RL for a placement at the current (date, shift, hour). If this hour has
-// no value of its own, carry forward the most recent EARLIER hour's RL WITHIN THIS
-// SHIFT (never the other shift), falling back to the placement's seed rl_meters.
+// Per-hour RL for a placement at the current (date, shift, hour). Strictly this
+// hour's own value — never carried forward from another hour or the placement seed,
+// so editing one hour never appears to change any other hour.
 const placementRlFor = (placementId) => {
   const exact = rlByKey.value[currentKey.value]?.[placementId];
-  if (exact !== undefined && exact !== null) return exact;
-  const order = SHIFT_HOURS[selection.shiftType] || [];
-  const idx = order.indexOf(selection.hour);
-  for (let i = idx - 1; i >= 0; i -= 1) {
-    const v = rlByKey.value[keyFor(selection.date, selection.shiftType, order[i])]?.[placementId];
-    if (v !== undefined && v !== null) return v;
-  }
-  const placement = areaExcavators.value.find((p) => p.placementId === placementId);
-  return placement?.rl ?? "";
+  return exact == null ? "" : exact;
 };
 
-// Set this hour's RL only (never touches earlier hours or the shared seed value).
-// Blank / non-numeric removes this hour's override, so it carries forward again.
+// Set this hour's RL only — never touches any other hour. Blank / non-numeric
+// clears just this hour's value (no carry-forward, so other hours are unaffected).
 const setPlacementRl = async (placementId, value) => {
   const raw = value === "" || value == null ? null : Number(value);
   const rl = raw != null && Number.isFinite(raw) ? raw : null;
@@ -1058,6 +1080,52 @@ const setPlacementRl = async (placementId, value) => {
     { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, rl_meters: rl },
     { onConflict: "placement_id,shift_id,log_hour" },
   );
+};
+
+// Per-hour Trucks in fleet for a placement at the current (date, shift, hour).
+// Strictly this hour's own value (no carry-forward), mirroring placementRlFor.
+const placementTrucksFor = (placementId) => {
+  const exact = trucksByKey.value[currentKey.value]?.[placementId];
+  return exact == null ? "" : exact;
+};
+
+// Set this hour's Trucks in fleet only — never touches any other hour. Blank / 0
+// removes this hour's value. Optimistic local cache first, then a best-effort
+// upsert; self-disables if the placement_trucks table isn't migrated yet.
+const setPlacementTrucks = async (placementId, value) => {
+  const raw = value === "" || value == null ? null : Number(value);
+  const trucks = raw != null && Number.isFinite(raw) && raw > 0 ? Math.round(raw) : null;
+  const key = currentKey.value;
+  const next = { ...trucksByKey.value };
+  if (trucks == null) {
+    if (next[key]) {
+      const inner = { ...next[key] };
+      delete inner[placementId];
+      next[key] = inner;
+    }
+  } else {
+    next[key] = { ...(next[key] || {}), [placementId]: trucks };
+  }
+  trucksByKey.value = next;
+  await stampEditor(placementId);
+  if (placementTrucksMissing) return; // table not migrated yet — keep the optimistic value only
+  const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
+  if (!shiftId) return;
+  if (trucks == null) {
+    const { error } = await supabase
+      .from("placement_trucks")
+      .delete()
+      .eq("placement_id", placementId)
+      .eq("shift_id", shiftId)
+      .eq("log_hour", selection.hour);
+    if (isMissingTableError(error)) placementTrucksMissing = true;
+    return;
+  }
+  const { error } = await supabase.from("placement_trucks").upsert(
+    { placement_id: placementId, shift_id: shiftId, log_hour: selection.hour, truck_count: trucks },
+    { onConflict: "placement_id,shift_id,log_hour" },
+  );
+  if (isMissingTableError(error)) placementTrucksMissing = true;
 };
 
 // Who added (first keyed) and who last edited this placement, for the current
@@ -1158,6 +1226,7 @@ const removePlacementFromHour = async (placementId) => {
 
   await supabase.from("production_entries").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   await supabase.from("placement_rl").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
+  if (!placementTrucksMissing) await supabase.from("placement_trucks").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   await supabase.from("placement_notes").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   await supabase.from("placement_removed").upsert(
     { placement_id: placementId, shift_id: shiftId, log_hour: hour },
@@ -1177,6 +1246,7 @@ const removePlacementFromHour = async (placementId) => {
   dropFromKey(entriesByKey);
   dropFromKey(draftRowsByKey);
   dropFromKey(rlByKey);
+  dropFromKey(trucksByKey);
   dropFromKey(notesByKey);
   removedByKey.value = { ...removedByKey.value, [key]: { ...(removedByKey.value[key] || {}), [placementId]: true } };
 };
@@ -1202,6 +1272,8 @@ export const useEntryStore = () => ({
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
+  placementTrucksFor,
+  setPlacementTrucks,
   placementEditorsFor,
   isPlacementRemovedNow,
   placementVisibleNow,

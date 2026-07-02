@@ -25,9 +25,19 @@ const OTHER_SHIFT = "Night";
 
 const planKey = (date, shiftType) => `${date}_${shiftType}`;
 
-// { [date_shiftType]: { [patternCode]: { soil, ore } } }
+// { [date_shiftType]: { [patternCode]: { soil, ore, priority } } }
 const plansByKey = ref({});
 const loading = ref(false);
+
+// Priority lives in its own table (plan_priorities). If the migration hasn't run
+// yet, stop querying / writing it so we don't spam errors; the plan still works,
+// priority just stays blank until the table exists.
+let planPrioritiesMissing = false;
+const isMissingTableError = (error) =>
+  !!error &&
+  (error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    /could not find the table|does not exist/i.test(error.message || ""));
 
 // Loads both shifts for a calendar date in one query, re-grouped by
 // date_shiftType -> { patternCode: { soil, ore } } so reads stay synchronous.
@@ -51,8 +61,27 @@ const fetchPlans = async (date) => {
         const shiftType = shiftTypeById[row.shift_id];
         if (!shiftType) return;
         const bucket = next[planKey(date, shiftType)] || (next[planKey(date, shiftType)] = {});
-        bucket[row.pattern_code] = { soil: Number(row.soil_tonnes) || 0, ore: Number(row.ore_tonnes) || 0 };
+        bucket[row.pattern_code] = { soil: Number(row.soil_tonnes) || 0, ore: Number(row.ore_tonnes) || 0, priority: null };
       });
+    }
+
+    // Hand-set priorities for the same (shift, pattern), from the separate table.
+    if (!planPrioritiesMissing) {
+      const { data: prio, error: prioError } = await supabase
+        .from("plan_priorities")
+        .select("shift_id, pattern_code, priority")
+        .in("shift_id", shiftIds);
+      if (isMissingTableError(prioError)) {
+        planPrioritiesMissing = true;
+      } else if (!prioError && prio) {
+        prio.forEach((row) => {
+          const shiftType = shiftTypeById[row.shift_id];
+          if (!shiftType) return;
+          const bucket = next[planKey(date, shiftType)] || (next[planKey(date, shiftType)] = {});
+          const entry = bucket[row.pattern_code] || (bucket[row.pattern_code] = { soil: 0, ore: 0, priority: null });
+          entry.priority = row.priority == null ? null : Number(row.priority);
+        });
+      }
     }
   }
 
@@ -70,9 +99,10 @@ const getPlans = (date, shiftType) => plansByKey.value[planKey(date, shiftType)]
 const getDatePlans = (date) => {
   const merged = {};
   ["Day", "Night"].forEach((shiftType) => {
-    Object.entries(getPlans(date, shiftType)).forEach(([code, { soil, ore }]) => {
-      const cur = merged[code] || { soil: 0, ore: 0 };
-      merged[code] = { soil: cur.soil + soil, ore: cur.ore + ore };
+    Object.entries(getPlans(date, shiftType)).forEach(([code, { soil, ore, priority }]) => {
+      const cur = merged[code] || { soil: 0, ore: 0, priority: null };
+      // Priority is written to the canonical shift only; keep the first non-null.
+      merged[code] = { soil: cur.soil + soil, ore: cur.ore + ore, priority: cur.priority ?? (priority ?? null) };
     });
   });
   return merged;
@@ -100,6 +130,10 @@ const deletePatternFromShift = async (date, shiftType, code) => {
     .maybeSingle();
   if (shift) {
     await supabase.from("production_plans").delete().eq("shift_id", shift.id).eq("pattern_code", code);
+    if (!planPrioritiesMissing) {
+      const { error } = await supabase.from("plan_priorities").delete().eq("shift_id", shift.id).eq("pattern_code", code);
+      if (isMissingTableError(error)) planPrioritiesMissing = true;
+    }
   }
 };
 
@@ -133,9 +167,43 @@ const savePlan = async (patternCode, { soil = 0, ore = 0 } = {}) => {
 
   plansByKey.value = {
     ...plansByKey.value,
-    [canonicalKey]: { ...(plansByKey.value[canonicalKey] || {}), [code]: { soil: Number(soil) || 0, ore: Number(ore) || 0 } },
+    [canonicalKey]: {
+      ...(plansByKey.value[canonicalKey] || {}),
+      // Keep any hand-set priority — saving soil/ore must not wipe it.
+      [code]: { soil: Number(soil) || 0, ore: Number(ore) || 0, priority: plansByKey.value[canonicalKey]?.[code]?.priority ?? null },
+    },
     [otherKey]: otherBucket,
   };
+  return true;
+};
+
+// Upsert one pattern's hand-set Priority (1–4) for the selected date, on the same
+// canonical shift as savePlan. Blank / out-of-range clears it. Persists to
+// plan_priorities; keeps only the optimistic cache until that table is migrated.
+const savePriority = async (patternCode, value) => {
+  const code = String(patternCode || "").trim();
+  if (!code) return false;
+  const n = value === "" || value == null ? null : Number(value);
+  const priority = n != null && Number.isFinite(n) && n >= 1 && n <= 4 ? Math.round(n) : null;
+
+  const canonicalKey = planKey(selection.date, CANONICAL_SHIFT);
+  const canonicalBucket = { ...(plansByKey.value[canonicalKey] || {}) };
+  canonicalBucket[code] = { ...(canonicalBucket[code] || { soil: 0, ore: 0, priority: null }), priority };
+  plansByKey.value = { ...plansByKey.value, [canonicalKey]: canonicalBucket };
+
+  if (planPrioritiesMissing) return true;
+  const shiftId = await ensureShift(selection.date, CANONICAL_SHIFT);
+  if (!shiftId) return false;
+  if (priority == null) {
+    const { error } = await supabase.from("plan_priorities").delete().eq("shift_id", shiftId).eq("pattern_code", code);
+    if (isMissingTableError(error)) planPrioritiesMissing = true;
+    return true;
+  }
+  const { error } = await supabase.from("plan_priorities").upsert(
+    { shift_id: shiftId, pattern_code: code, priority, updated_at: new Date().toISOString() },
+    { onConflict: "shift_id,pattern_code" },
+  );
+  if (isMissingTableError(error)) planPrioritiesMissing = true;
   return true;
 };
 
@@ -165,6 +233,7 @@ export const usePlanProduction = () => ({
   planMaterialTotalsForDate,
   patternCountForDate,
   savePlan,
+  savePriority,
   removePlan,
   reloadPlans: () => fetchPlans(selection.date),
 });
