@@ -427,23 +427,20 @@ table.data .exc { font-family: var(--font-mono); font-weight: 600; color: var(--
   letter-spacing: 0.04em;
   color: var(--ink-2);
 }
-.cell-pill {
-  display: inline-block;
-  min-width: 30px;
-  padding: 3px 10px;
-  border-radius: 6px;
+/* Trip / Waste BCM / ORE BCM cells — the colour fills the whole cell with the value
+   centred on top (matching the Priority column), instead of a small badge. Green =
+   good (above threshold), red = danger (at/below threshold). */
+table.data td.fill-cell {
+  padding: 0;
   text-align: center;
-  font-weight: 600;
-  color: var(--ink);
-}
-.cell-pill.danger {
-  background: var(--alert);
+  vertical-align: middle;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
   color: #fff;
 }
-.cell-pill.good {
-  background: var(--ok);
-  color: #fff;
-}
+table.data td.fill-cell.danger { background: var(--alert); }
+table.data td.fill-cell.good { background: var(--ok); }
 .remark { color: var(--ink-2); }
 .remark-inner { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
 table.data tbody tr:hover { background: var(--panel-2); }

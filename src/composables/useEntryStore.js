@@ -203,12 +203,13 @@ const draftRowsByKey = ref({});
 // "date_shiftType_hour" -> { [placementId]: note }.
 const notesByKey = ref({});
 // Per-hour RL / bench level (public.placement_rl), same keying ->
-// { [placementId]: rl_meters }. Hour-scoped: editing one hour never touches any
-// other hour, and each hour shows only its own value (no carry-forward).
+// { [placementId]: rl_meters }. Stored per hour (editing one hour never writes to
+// any other), but DISPLAYED with forward carry: a later hour with no own value shows
+// the most recent earlier hour's value (see placementRlFor / carriedValueFor).
 const rlByKey = ref({});
 // Per-hour Trucks in fleet (public.placement_trucks), same keying ->
-// { [placementId]: truck_count }. Hour-scoped exactly like RL — set once per hour,
-// never auto-applied to other hours.
+// { [placementId]: truck_count }. Stored per hour, displayed with forward carry,
+// exactly like RL (see placementTrucksFor).
 const trucksByKey = ref({});
 // Per-hour removals (public.placement_removed), same keying ->
 // { [placementId]: true }. Removal is hour-scoped: removing a placement affects
@@ -1039,12 +1040,42 @@ const setPlacementNote = async (placementId, value) => {
   );
 };
 
-// Per-hour RL for a placement at the current (date, shift, hour). Strictly this
-// hour's own value — never carried forward from another hour or the placement seed,
-// so editing one hour never appears to change any other hour.
+// Most recent OWN value for `placementId` at or before the selected hour, walking
+// backward through THIS shift's hours (Day/Night never mix — see SHIFT_HOURS). This
+// is how Trucks in fleet and RL carry forward for DISPLAY: a value keyed at an earlier
+// hour keeps showing until a later hour overrides it. Read-only — nothing is written,
+// so earlier hours are never auto-edited and only a real UI edit persists (to the hour
+// being edited). A per-hour removal is a hard reset: the walk stops at it and never
+// carries across (the current hour's own removal just hides the row entirely).
+const carriedValueFor = (store, placementId) => {
+  const order = SHIFT_HOURS[selection.shiftType] || [];
+  const idx = order.indexOf(selection.hour);
+  if (idx < 0) return undefined;
+  for (let i = idx; i >= 0; i -= 1) {
+    const key = keyFor(selection.date, selection.shiftType, order[i]);
+    if (i < idx && removedByKey.value[key]?.[placementId]) return undefined;
+    const v = store.value[key]?.[placementId];
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+};
+
+// This hour's OWN value only (no carry-forward) — used where the real question is
+// "was anything keyed at THIS hour" (e.g. the blank-row check), not what's displayed.
+const placementRlExactFor = (placementId) => {
+  const v = rlByKey.value[currentKey.value]?.[placementId];
+  return v == null ? "" : v;
+};
+const placementTrucksExactFor = (placementId) => {
+  const v = trucksByKey.value[currentKey.value]?.[placementId];
+  return v == null ? "" : v;
+};
+
+// RL for a placement at the selected hour, carried forward from the most recent
+// earlier hour when this hour has none of its own (display-only — see carriedValueFor).
 const placementRlFor = (placementId) => {
-  const exact = rlByKey.value[currentKey.value]?.[placementId];
-  return exact == null ? "" : exact;
+  const v = carriedValueFor(rlByKey, placementId);
+  return v == null ? "" : v;
 };
 
 // Set this hour's RL only — never touches any other hour. Blank / non-numeric
@@ -1082,11 +1113,11 @@ const setPlacementRl = async (placementId, value) => {
   );
 };
 
-// Per-hour Trucks in fleet for a placement at the current (date, shift, hour).
-// Strictly this hour's own value (no carry-forward), mirroring placementRlFor.
+// Trucks in fleet for a placement at the selected hour, carried forward like RL:
+// the last hour's value keeps showing until a later hour overrides it (display-only).
 const placementTrucksFor = (placementId) => {
-  const exact = trucksByKey.value[currentKey.value]?.[placementId];
-  return exact == null ? "" : exact;
+  const v = carriedValueFor(trucksByKey, placementId);
+  return v == null ? "" : v;
 };
 
 // Set this hour's Trucks in fleet only — never touches any other hour. Blank / 0
@@ -1271,8 +1302,10 @@ export const useEntryStore = () => ({
   placementNoteFor,
   setPlacementNote,
   placementRlFor,
+  placementRlExactFor,
   setPlacementRl,
   placementTrucksFor,
+  placementTrucksExactFor,
   setPlacementTrucks,
   placementEditorsFor,
   isPlacementRemovedNow,

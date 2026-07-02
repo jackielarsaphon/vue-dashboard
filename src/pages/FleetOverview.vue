@@ -652,9 +652,9 @@ const reportTotals = computed(() => {
                   <td class="exc">{{ row.exc }}</td>
                   <td class="mono">{{ row.trucks }}</td>
                   <td><span class="chip">{{ row.area }}</span></td>
-                  <td><span class="cell-pill mono" :class="row.trip <= 6 ? 'danger' : 'good'">{{ row.trip }}</span></td>
-                  <td><span class="cell-pill mono" :class="row.waste <= 150 ? 'danger' : 'good'">{{ row.waste ? fmt(row.waste) : "–" }}</span></td>
-                  <td><span class="cell-pill mono" :class="row.ore <= 150 ? 'danger' : 'good'">{{ row.ore ? fmt(row.ore) : "–" }}</span></td>
+                  <td class="fill-cell mono" :class="row.trip <= 6 ? 'danger' : 'good'">{{ row.trip }}</td>
+                  <td class="fill-cell mono" :class="row.waste <= 150 ? 'danger' : 'good'">{{ row.waste ? fmt(row.waste) : "–" }}</td>
+                  <td class="fill-cell mono" :class="row.ore <= 150 ? 'danger' : 'good'">{{ row.ore ? fmt(row.ore) : "–" }}</td>
                   <td class="remark rmk">
                     <span class="remark-inner">
                       <StatusDot v-if="row.status !== 'ok'" :status="row.status" />

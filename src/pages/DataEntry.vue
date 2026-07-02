@@ -37,8 +37,10 @@ const {
   placementNoteFor,
   setPlacementNote,
   placementRlFor,
+  placementRlExactFor,
   setPlacementRl,
   placementTrucksFor,
+  placementTrucksExactFor,
   setPlacementTrucks,
   placementEditorsFor,
   placementVisibleNow,
@@ -541,10 +543,12 @@ const deleteExc = async (placement) => {
 // A placement is "blank" — never used — when its slot has no trips for the date and
 // no operational data (a Trucks override / RL / note). Used to stop "+ Add
 // excavator" from piling up empty rows, and to clear them out in one go.
+// Uses the EXACT (this-hour-only) readers, not the carry-forward display values: a
+// value merely carried in from an earlier hour doesn't make this hour's slot "used".
 const isBlankExcavator = (placement) =>
   !placementHasDateTrips(placement) &&
-  !Number(placementTrucksFor(placement.placementId)) &&
-  !Number(placementRlFor(placement.placementId)) &&
+  !Number(placementTrucksExactFor(placement.placementId)) &&
+  !Number(placementRlExactFor(placement.placementId)) &&
   !String(placementNoteFor(placement.placementId) || "").trim();
 const emptyDetailRows = computed(() => detailRows.value.filter(isBlankExcavator));
 const hasUnusedRow = computed(() => emptyDetailRows.value.length > 0);
