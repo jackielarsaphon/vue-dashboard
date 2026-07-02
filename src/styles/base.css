@@ -441,6 +441,13 @@ table.data td.fill-cell {
 }
 table.data td.fill-cell.danger { background: var(--alert); }
 table.data td.fill-cell.good { background: var(--ok); }
+/* Area (pit code) — a full-cell fill too, but a single neutral brand colour (gold)
+   with dark text: it's an identifier, not a good/bad status. */
+table.data td.fill-cell.area-cell {
+  background: var(--accent);
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
 .remark { color: var(--ink-2); }
 .remark-inner { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
 table.data tbody tr:hover { background: var(--panel-2); }

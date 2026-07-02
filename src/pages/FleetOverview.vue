@@ -651,7 +651,7 @@ const reportTotals = computed(() => {
                   <td><StatusDot :status="row.status" /></td>
                   <td class="exc">{{ row.exc }}</td>
                   <td class="mono">{{ row.trucks }}</td>
-                  <td><span class="chip">{{ row.area }}</span></td>
+                  <td class="fill-cell area-cell mono">{{ row.area }}</td>
                   <td class="fill-cell mono" :class="row.trip <= 6 ? 'danger' : 'good'">{{ row.trip }}</td>
                   <td class="fill-cell mono" :class="row.waste <= 150 ? 'danger' : 'good'">{{ row.waste ? fmt(row.waste) : "–" }}</td>
                   <td class="fill-cell mono" :class="row.ore <= 150 ? 'danger' : 'good'">{{ row.ore ? fmt(row.ore) : "–" }}</td>
