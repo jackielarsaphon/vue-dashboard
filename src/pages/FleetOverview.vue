@@ -24,6 +24,10 @@ const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
 // so the Remark column stays meaningful instead of always reading "Normal".
 const STATUS_REMARK = { ok: "Normal", warn: "Watch", alert: "Down" };
 
+// Waste series colour, shared by every chart's Waste legend + bars (one place to
+// retune). Was brown #8a5a2b.
+const WASTE_COLOR = "#45A9C4";
+
 const [t, setTweak] = useTweaks({
   accent: "#d99a00",
   density: "compact",
@@ -683,7 +687,7 @@ const reportTotals = computed(() => {
           <div class="panel-head">
             <h2>Total TRIP by hour</h2>
             <div class="legend mono">
-              <span><span class="lg-dot" style="background: #8a5a2b" />Waste</span>
+              <span><span class="lg-dot" :style="{ background: WASTE_COLOR }" />Waste</span>
               <span><span class="lg-dot ml" style="background: var(--ore)" />ORE</span>
               <span class="now-pill">Current {{ String(selection.hour).padStart(2, "0") }}:00</span>
             </div>
@@ -707,7 +711,7 @@ const reportTotals = computed(() => {
               </text>
             </g>
             <g v-for="bar in hourlyBars" :key="bar.t" :class="{ current: bar.isCurrent }">
-              <rect :x="bar.x" :y="bar.baseY - bar.softH" :width="bar.bw" :height="bar.softH" fill="#8a5a2b" :opacity="bar.isCurrent ? 1 : 0.88" />
+              <rect :x="bar.x" :y="bar.baseY - bar.softH" :width="bar.bw" :height="bar.softH" :fill="WASTE_COLOR" :opacity="bar.isCurrent ? 1 : 0.88" />
               <rect :x="bar.x" :y="bar.baseY - bar.softH - bar.oreH" :width="bar.bw" :height="bar.oreH" fill="var(--ore)" />
               <!-- ดิน (Waste) and แร่ (ORE) shown as SEPARATE numbers — not a combined
                    total: Waste inside its (usually larger) brown segment, and ORE in
@@ -764,7 +768,7 @@ const reportTotals = computed(() => {
             <h2>Production by excavator</h2>
             <div class="legend mono">
               <span><span class="lg-dot" style="background: var(--ore)" />Ore</span>
-              <span><span class="lg-dot ml" style="background: #8a5a2b" />Waste</span>
+              <span><span class="lg-dot ml" :style="{ background: WASTE_COLOR }" />Waste</span>
             </div>
           </div>
           <div class="hbars">
@@ -774,7 +778,7 @@ const reportTotals = computed(() => {
                 <div class="hbar-fill" :style="{ width: `${(row.oreTrip / maxTrip) * 100}%`, background: 'var(--ore)' }" :title="`Ore ${row.oreTrip}`">
                   <span v-if="row.oreTrip > 0" class="hbar-seg-val">{{ row.oreTrip }}</span>
                 </div>
-                <div class="hbar-fill" :style="{ width: `${(row.wasteTrip / maxTrip) * 100}%`, background: '#8a5a2b' }" :title="`Waste ${row.wasteTrip}`">
+                <div class="hbar-fill" :style="{ width: `${(row.wasteTrip / maxTrip) * 100}%`, background: WASTE_COLOR }" :title="`Waste ${row.wasteTrip}`">
                   <span v-if="row.wasteTrip > 0" class="hbar-seg-val">{{ row.wasteTrip }}</span>
                 </div>
               </div>
