@@ -27,6 +27,11 @@ const planKey = (date, shiftType) => `${date}_${shiftType}`;
 
 // { [date_shiftType]: { [patternCode]: { soil, ore, priority } } }
 const plansByKey = ref({});
+// Carry-forward defaults for hand-set Priority, per date: { [date]: { [code]: priority } }.
+// The most recent PRIOR day's priority per pattern — shown as the default until a day
+// sets its own. Display only: getDatePlans falls back to it, but nothing is persisted
+// until the user edits the Priority field (see DataEntry persistSelectedPit).
+const carriedPriorityByDate = ref({});
 const loading = ref(false);
 
 // Priority lives in its own table (plan_priorities). If the migration hasn't run
@@ -85,7 +90,44 @@ const fetchPlans = async (date) => {
     }
   }
 
+  // Carry-forward: the most recent PRIOR day's hand-set priority per pattern. Two
+  // steps (no FK embedding needed): prior shifts, then their priorities; for each
+  // pattern keep the value from the latest prior shift_date. Forward-only across
+  // dates — a later day inherits an earlier day's value, never the reverse.
+  const carried = {};
+  if (!planPrioritiesMissing) {
+    const { data: priorShifts, error: priorShiftErr } = await supabase
+      .from("shifts")
+      .select("id, shift_date")
+      .lt("shift_date", date);
+    if (!priorShiftErr && priorShifts && priorShifts.length) {
+      const dateById = Object.fromEntries(priorShifts.map((s) => [s.id, s.shift_date]));
+      const { data: priorPrio, error: priorPrioErr } = await supabase
+        .from("plan_priorities")
+        .select("shift_id, pattern_code, priority")
+        .in(
+          "shift_id",
+          priorShifts.map((s) => s.id),
+        );
+      if (isMissingTableError(priorPrioErr)) {
+        planPrioritiesMissing = true;
+      } else if (priorPrio) {
+        const latestByCode = {}; // pattern_code -> shift_date the chosen value came from
+        priorPrio.forEach((row) => {
+          if (row.priority == null) return;
+          const d = dateById[row.shift_id];
+          if (!d) return;
+          if (!latestByCode[row.pattern_code] || d > latestByCode[row.pattern_code]) {
+            latestByCode[row.pattern_code] = d;
+            carried[row.pattern_code] = Number(row.priority);
+          }
+        });
+      }
+    }
+  }
+
   plansByKey.value = { ...plansByKey.value, ...next };
+  carriedPriorityByDate.value = { ...carriedPriorityByDate.value, [date]: carried };
   loading.value = false;
 };
 
@@ -97,6 +139,7 @@ const getPlans = (date, shiftType) => plansByKey.value[planKey(date, shiftType)]
 // plans live on the canonical shift only, but reads merge both so any older
 // per-shift data still shows and sums correctly (duplicates are added together).
 const getDatePlans = (date) => {
+  const carried = carriedPriorityByDate.value[date] || {};
   const merged = {};
   ["Day", "Night"].forEach((shiftType) => {
     Object.entries(getPlans(date, shiftType)).forEach(([code, { soil, ore, priority }]) => {
@@ -104,6 +147,11 @@ const getDatePlans = (date) => {
       // Priority is written to the canonical shift only; keep the first non-null.
       merged[code] = { soil: cur.soil + soil, ore: cur.ore + ore, priority: cur.priority ?? (priority ?? null) };
     });
+  });
+  // Any pit with no OWN priority this date falls back to the carried-forward default
+  // from the most recent prior day (own value always wins; carried never persists here).
+  Object.keys(merged).forEach((code) => {
+    if (merged[code].priority == null && carried[code] != null) merged[code].priority = carried[code];
   });
   return merged;
 };

@@ -202,11 +202,17 @@ const updatePitAmount = (type, value) => {
   if (!selectedPitName.value) return;
   pitAmounts.value[selectedPitName.value][type] = formatCommaNumber(value);
 };
+// Pits whose Priority the user actually edited this session (per date). A value
+// merely carried in from a prior day is shown as a default but must NOT be written
+// back until the user changes it in the field — so persistSelectedPit only saves
+// Priority for pits in this set. Cleared when the date changes (below).
+const priorityTouched = new Set();
 // Priority is a single 1–4 digit, not a tonnage — keep only 1–4 (blank clears it).
 const updatePitPriority = (value) => {
   if (!selectedPitName.value) return;
   const digit = String(value ?? "").replace(/\D/g, "").slice(0, 1);
   pitAmounts.value[selectedPitName.value].priority = digit >= "1" && digit <= "4" ? digit : "";
+  priorityTouched.add(selectedPitName.value);
 };
 const parseCommaNumber = (value) => Number(String(value ?? "").replace(/,/g, "")) || 0;
 const selectedPitPlan = computed(() => {
@@ -250,13 +256,21 @@ watch(
   { immediate: true },
 );
 
+// A new date starts with a clean slate: Priority edits don't carry the "touched"
+// flag across dates, so a carried-in default on the new day isn't persisted until
+// it's edited there. (Tied to the date only — not plan updates — so an in-progress
+// edit isn't un-flagged by a reactive reload.)
+watch(() => selection.date, () => priorityTouched.clear());
+
 // Save the currently selected pit's soil/ore to Supabase (called on input blur).
 const persistSelectedPit = () => {
   const name = selectedPitName.value;
   if (!name) return;
   const values = pitAmounts.value[name] ?? { soil: "", ore: "", priority: "" };
   savePlan(name, { soil: parseCommaNumber(values.soil), ore: parseCommaNumber(values.ore) });
-  savePriority(name, values.priority);
+  // Only write Priority when the user actually edited the field — a value carried in
+  // from a prior day stays a display-only default until they change it themselves.
+  if (priorityTouched.has(name)) savePriority(name, values.priority);
 };
 const patternFilter = ref("");
 const selectedPatternId = ref("");
