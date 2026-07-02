@@ -893,6 +893,8 @@
   font-weight: 600;
 }
 .exc-mini-input:focus { outline: none; border-color: var(--accent); }
+/* Read-only derived value (Trucks in fleet = distinct Dump models this hour). */
+.exc-mini-static { display: inline-block; color: var(--ink); font-size: 14px; font-weight: 600; }
 .exc-note-input {
   background: var(--panel-2);
   color: var(--ink);

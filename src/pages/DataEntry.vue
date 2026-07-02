@@ -38,8 +38,6 @@ const {
   setPlacementNote,
   placementRlFor,
   setPlacementRl,
-  placementTrucksFor,
-  setPlacementTrucks,
   placementEditorsFor,
   placementVisibleNow,
   removePlacementFromHour,
@@ -475,6 +473,19 @@ const rowStatus = (placement) => {
   return placement.status;
 };
 
+// Trucks in fleet = how many distinct Dump models this placement hauled with this
+// hour, read from the trip rows (matches the Fleet overview Trucks column). Derived
+// from the entered trips, not keyed by hand.
+const trucksFromModels = (placement) => {
+  const entry = entries.value[slotKeyOf(placement)];
+  if (!entry) return 0;
+  const models = new Set();
+  entry.rows.forEach((row) => {
+    if (rowTotal(row) > 0 && row.model) models.add(row.model);
+  });
+  return models.size;
+};
+
 // True when this placement's slot has trips logged for the selected date.
 const placementHasDateTrips = (placement) => {
   const slot = slotKeyOf(placement);
@@ -539,11 +550,10 @@ const deleteExc = async (placement) => {
 };
 
 // A placement is "blank" — never used — when its slot has no trips for the date and
-// no operational data (trucks / RL / note). Used to stop "+ Add excavator" from
-// piling up empty rows, and to clear them out in one go.
+// no operational data (RL / note). Trucks is derived from trips now, so it adds no
+// independent signal here. Used to stop "+ Add excavator" from piling up empty rows.
 const isBlankExcavator = (placement) =>
   !placementHasDateTrips(placement) &&
-  !Number(placementTrucksFor(placement.placementId)) &&
   !Number(placementRlFor(placement.placementId)) &&
   !String(placementNoteFor(placement.placementId) || "").trim();
 const emptyDetailRows = computed(() => detailRows.value.filter(isBlankExcavator));
@@ -995,14 +1005,7 @@ onUnmounted(() => {
                 <span v-if="editedByName(exc) && editedByName(exc) !== addedByName(exc)" class="exc-by" :title="`Edited by ${editedByName(exc)}`">edited by {{ editedByName(exc) }}</span>
               </div>
               <div class="exc-cell num">
-                <input
-                  class="exc-mini-input"
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  :value="placementTrucksFor(exc.placementId)"
-                  @change="setPlacementTrucks(exc.placementId, $event.target.value)"
-                />
+                <span class="exc-mini-static mono" title="Distinct Dump models hauled this hour">{{ trucksFromModels(exc) }}</span>
               </div>
               <div class="exc-cell num">
                 <input
@@ -1047,7 +1050,7 @@ onUnmounted(() => {
           <div class="modal-title">
             <span class="exc mono">{{ openExc.name }}</span>
             <span class="chip">{{ openExc.area }}</span>
-            <span class="sub">{{ placementTrucksFor(openExc.placementId) || 0 }} trucks - {{ hourLabel }}</span>
+            <span class="sub">{{ trucksFromModels(openExc) }} trucks - {{ hourLabel }}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 16px">
             <div class="modal-loaded">
