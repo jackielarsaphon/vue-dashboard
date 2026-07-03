@@ -6,8 +6,9 @@ import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
-import html2canvas from "html2canvas";
+import { useDownloadImage } from "../composables/useDownloadImage.js";
 import TopBar from "../components/common/TopBar.vue";
+import DownloadImageButton from "../components/common/DownloadImageButton.vue";
 import StatusDot from "../components/common/StatusDot.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
@@ -61,42 +62,8 @@ const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
 // reload: re-fetch on tab focus / visibility and every 30s.
 useLiveRefresh([reloadEntries, reloadPlans, reloadAreaTargets]);
 
-// Download the whole Fleet overview as one PNG. html2canvas rasterises the live
-// DOM (so theme CSS variables, fonts and layout match the screen), skipping the
-// toolbar button and the floating tweaks panel.
-const dashRef = ref(null);
-const downloading = ref(false);
-const downloadImage = async () => {
-  const node = dashRef.value;
-  if (!node || downloading.value) return;
-  downloading.value = true;
-  try {
-    // Make sure web fonts are ready so text doesn't fall back in the capture.
-    if (document.fonts?.ready) await document.fonts.ready;
-    const rootStyles = getComputedStyle(document.documentElement);
-    const bg = rootStyles.getPropertyValue("--bg").trim() || getComputedStyle(document.body).backgroundColor || "#ffffff";
-    // Render at ~4K width for a crisp export: scale so the output is at least 3840px
-    // wide whatever the screen size, capped at 4× to keep memory sane and never below
-    // the 2× we used before.
-    const scale = Math.min(4, Math.max(2, 3840 / (node.scrollWidth || 3840)));
-    const canvas = await html2canvas(node, {
-      backgroundColor: bg,
-      scale,
-      useCORS: true,
-      logging: false,
-      windowWidth: node.scrollWidth,
-      ignoreElements: (el) => el.classList?.contains("no-capture") || el.classList?.contains("twk-panel"),
-    });
-    const link = document.createElement("a");
-    link.download = `fleet-overview-${selection.date}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  } catch (err) {
-    console.error("Download image failed", err);
-  } finally {
-    downloading.value = false;
-  }
-};
+// Download the whole Fleet overview as one PNG (shared logic in useDownloadImage).
+const { dashRef, downloading, downloadImage } = useDownloadImage(() => `fleet-overview-${selection.date}.png`);
 
 // KPI-card targets are derived from Plan Production, not a fixed number. The plan
 // figures (soil = Waste, ore = ORE) are entered as TONNES per pit (production_plans
@@ -506,21 +473,7 @@ const areaBars = computed(() => {
   <div ref="dashRef" class="dash">
     <TopBar subtitle="Live" />
 
-    <div class="dash-toolbar no-capture">
-      <button class="dl-btn" type="button" :disabled="downloading" @click="downloadImage">
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-          <path
-            d="M12 3v11m0 0l-4-4m4 4l4-4M5 20h14"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <span>{{ downloading ? "Saving…" : "Download image" }}</span>
-      </button>
-    </div>
+    <DownloadImageButton :downloading="downloading" @click="downloadImage" />
 
     <section class="kpi-strip fleet-kpi">
       <div class="kpi kpi-clock">
