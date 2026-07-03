@@ -245,6 +245,15 @@ button, input, select { font: inherit; }
   grid-template-columns: repeat(3, 1fr) 1.1fr;
   gap: 10px;
 }
+/* Fleet overview: a live Date & Time card leads the strip, then Fleet Status,
+   then Total Production, Waste, ORE. Scoped to this page so the Area page
+   (.area-kpi) keeps its own layout. */
+.fleet-kpi { grid-template-columns: 1.1fr 1.1fr repeat(3, 0.95fr); }
+.fleet-kpi .kpi-clock { order: 1; }
+.fleet-kpi .kpi-fleet { order: 2; }
+.fleet-kpi .kpi-prod { order: 3; }
+.fleet-kpi .kpi-waste { order: 4; }
+.fleet-kpi .kpi-ore { order: 5; }
 .kpi {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -265,6 +274,39 @@ button, input, select { font: inherit; }
 .kpi-waste::before { background: var(--waste); }
 .kpi-ore::before { background: var(--ore); }
 .kpi-fleet::before { background: var(--ok); }
+.kpi-clock::before { background: var(--cool); }
+.kpi-clock { display: flex; flex-direction: column; }
+/* DATE / SHIFT / HOUR on a single row, like the top-bar meta boxes. */
+.clock-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+}
+.cmeta { display: flex; flex-direction: column; gap: 3px; white-space: nowrap; }
+.cmeta-k { font-size: 10px; color: var(--ink-3); letter-spacing: 0.14em; }
+.cmeta-v {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.cmeta-v.accent { color: var(--accent); }
+.cmeta-box {
+  align-self: flex-start;
+  background: none;
+  color: var(--ink);
+  border: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
 .kpi-head {
   display: flex;
   align-items: center;

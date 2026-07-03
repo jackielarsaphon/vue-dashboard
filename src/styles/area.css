@@ -1,5 +1,3 @@
-.area-kpi { grid-template-columns: 1.2fr 1fr 1fr 1fr; }
-.kpi-of { font-size: 14px; color: var(--ink-3); font-weight: 400; margin-left: 4px; }
 .status-board-head {
   display: flex;
   align-items: center;
@@ -123,12 +121,7 @@
 .pd-alert .pd-bar { background: var(--alert); }
 .pd-future .pd-bar { background: var(--line); }
 
-@media (max-width: 1180px) {
-  .area-kpi { grid-template-columns: repeat(2, 1fr); }
-}
-
 @media (max-width: 760px) {
-  .area-kpi { grid-template-columns: 1fr; }
   .status-board-head { align-items: flex-start; flex-direction: column; gap: 8px; }
 }
 

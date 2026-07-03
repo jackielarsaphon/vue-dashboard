@@ -6,6 +6,7 @@ import { useEntryStore, rowTonnes } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import TopBar from "../components/common/TopBar.vue";
+import ProductionReport from "../components/common/ProductionReport.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -109,26 +110,6 @@ const areaSeries = computed(() =>
   }),
 );
 
-const EMPTY_AREA = { area: "-", target: 0, actual: [0], delta: 0 };
-
-const totalTarget = computed(() => areaSeries.value.reduce((sum, area) => sum + area.target, 0));
-const totalActual = computed(() => areaSeries.value.reduce((sum, area) => sum + area.actual.at(-1), 0));
-const achievement = computed(() => pct(totalActual.value, totalTarget.value));
-const ahead = computed(() => areaSeries.value.filter((area) => area.actual.at(-1) >= area.target).length);
-const behind = computed(() => areaSeries.value.length - ahead.value);
-const bestArea = computed(
-  () =>
-    areaSeries.value
-      .map((area) => ({ ...area, delta: area.actual.at(-1) - area.target }))
-      .sort((a, b) => b.delta - a.delta)[0] ?? EMPTY_AREA,
-);
-const worstArea = computed(
-  () =>
-    areaSeries.value
-      .map((area) => ({ ...area, delta: area.actual.at(-1) - area.target }))
-      .sort((a, b) => a.delta - b.delta)[0] ?? EMPTY_AREA,
-);
-
 const statusCounts = computed(() => {
   const counts = { ok: 0, warn: 0, alert: 0 };
   areaSeries.value.forEach((series) => {
@@ -207,66 +188,7 @@ const areaCards = computed(() => {
   <div class="dash">
     <TopBar subtitle="Daily" />
 
-    <section class="kpi-strip area-kpi">
-      <div class="kpi kpi-prod">
-        <div class="kpi-head">
-          <span class="kpi-label">Total - Daily Actual</span>
-          <span class="kpi-pct mono">{{ achievement }}%</span>
-        </div>
-        <div class="kpi-main">
-          <div>
-            <div class="kpi-big mono">{{ fmt(totalActual) }}</div>
-            <div class="kpi-unit">Tonnes - {{ areaSeries.length }} areas</div>
-          </div>
-        </div>
-        <div class="kpi-bar">
-          <div class="kpi-bar-fill" :style="{ width: `${Math.min(100, achievement)}%`, background: 'var(--accent)' }" />
-        </div>
-        <div class="kpi-foot mono">Plan {{ fmt(totalTarget) }}t</div>
-      </div>
-
-      <div class="kpi kpi-waste">
-        <div class="kpi-head"><span class="kpi-label">On / Above plan</span></div>
-        <div class="kpi-main">
-          <div>
-            <div class="kpi-big mono">{{ ahead }}<span class="kpi-of">/{{ areaSeries.length }}</span></div>
-            <div class="kpi-unit">Areas hit target</div>
-          </div>
-          <div class="kpi-side">
-            <div class="kpi-trip mono">{{ behind }}</div>
-            <div class="kpi-unit">Behind</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="kpi kpi-ore">
-        <div class="kpi-head"><span class="kpi-label">Best area - vs plan</span></div>
-        <div class="kpi-main">
-          <div>
-            <div class="kpi-big mono">{{ bestArea.area }}</div>
-            <div class="kpi-unit">Leading</div>
-          </div>
-          <div class="kpi-side">
-            <div class="kpi-trip mono accent">{{ bestArea.delta >= 0 ? "+ " : "- " }}{{ fmt(Math.abs(bestArea.delta)) }}</div>
-            <div class="kpi-unit">Tonnes</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="kpi kpi-fleet">
-        <div class="kpi-head"><span class="kpi-label">Worst area - vs plan</span></div>
-        <div class="kpi-main">
-          <div>
-            <div class="kpi-big mono">{{ worstArea.area }}</div>
-            <div class="kpi-unit">Lagging</div>
-          </div>
-          <div class="kpi-side">
-            <div class="kpi-trip mono" style="color: var(--alert)">{{ fmt(worstArea.delta) }}</div>
-            <div class="kpi-unit">Tonnes</div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <ProductionReport :date="selection.date" />
 
     <div class="status-board-head">
       <h2 class="board-h">Area status board</h2>
