@@ -21,9 +21,9 @@
   border-radius: 999px;
   border: 1px solid transparent;
 }
-.lg-ok { background: color-mix(in oklab, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in oklab, var(--ok) 30%, transparent); }
-.lg-warn { background: color-mix(in oklab, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, transparent); }
-.lg-alert { background: color-mix(in oklab, var(--alert) 14%, transparent); color: var(--alert); border-color: color-mix(in oklab, var(--alert) 30%, transparent); }
+.lg-ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.lg-warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.lg-alert { background: color-mix(in srgb, var(--alert) 14%, transparent); color: var(--alert); border-color: color-mix(in srgb, var(--alert) 30%, transparent); }
 .area-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -42,7 +42,7 @@
   overflow: hidden;
   transition: border-color 0.12s ease;
 }
-.area-tile:hover { border-color: color-mix(in oklab, var(--ink-2) 25%, var(--line)); }
+.area-tile:hover { border-color: color-mix(in srgb, var(--ink-2) 25%, var(--line)); }
 .area-tile-bar { width: 4px; flex-shrink: 0; }
 .area-tile-ok .area-tile-bar,
 .area-tile-ok .area-tile-dot { background: var(--ok); }

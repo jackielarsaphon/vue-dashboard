@@ -74,7 +74,7 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: color-mix(in oklab, var(--bg) 55%, rgba(0, 0, 0, 0.7));
+  background: color-mix(in srgb, var(--bg) 55%, rgba(0, 0, 0, 0.7));
   backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
@@ -103,11 +103,11 @@ onBeforeUnmount(() => {
   place-items: center;
   border-radius: 50%;
   color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 16%, var(--panel));
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
 }
 .cd-icon.danger {
   color: var(--alert);
-  background: color-mix(in oklab, var(--alert) 14%, var(--panel));
+  background: color-mix(in srgb, var(--alert) 14%, var(--panel));
 }
 .cd-title {
   margin: 0;
