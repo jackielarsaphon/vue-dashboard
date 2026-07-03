@@ -15,7 +15,7 @@ const isManager = computed(() => user.value?.role === "manager");
 // (managers keep it — they aren't kiosk-locked).
 const { isMobile } = useIsMobile();
 const hideNav = computed(() => isMobile.value && isAdmin.value);
-const { selection, setDate, setShiftType, setHour, userAdjusted, markUserAdjusted, setActivePage } = useShiftSelection();
+const { selection, setDate, setShiftType, setHour, userAdjusted, dateAdjusted, markUserAdjusted, markDateAdjusted, setActivePage } = useShiftSelection();
 
 defineProps({
   subtitle: { type: String, default: "Live" },
@@ -102,7 +102,8 @@ const openDatePicker = () => {
 const onDateChange = (event) => {
   const value = event.target.value;
   if (!value || value > nowIso.value) return; // no future dates
-  markUserAdjusted(); // manual pick — stop auto-snapping back to "now"
+  markUserAdjusted(); // manual pick — stop this page auto-snapping shift/hour to "now"
+  markDateAdjusted(); // the date is shared — freeze it globally so every page follows
   setDate(value);
 };
 
@@ -114,9 +115,16 @@ const hours = computed(() =>
   }),
 );
 
+// The date is shared across pages, so it auto-follows the clock on a GLOBAL flag —
+// once picked anywhere, it stays put everywhere.
+watchEffect(() => {
+  if (dateAdjusted.value) return;
+  if (selection.date !== autoShiftDate.value) setDate(autoShiftDate.value);
+});
+
+// Shift/hour stay per page: each page follows the clock until hand-picked on it.
 watchEffect(() => {
   if (userAdjusted.value) return;
-  if (selection.date !== autoShiftDate.value) setDate(autoShiftDate.value);
   if (selection.shiftType !== autoShiftType.value) setShiftType(autoShiftType.value);
   if (selection.hour !== autoHour.value) setHour(autoHour.value);
 });
