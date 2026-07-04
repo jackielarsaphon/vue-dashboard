@@ -106,24 +106,24 @@ const reportTotals = computed(() => {
             <th rowspan="2" class="num">% Variance</th>
           </tr>
           <tr>
-            <th class="num">Waste</th>
-            <th class="num">Ore</th>
-            <th class="num">Total DS</th>
-            <th class="num">Waste</th>
-            <th class="num">Ore</th>
-            <th class="num">Total NS</th>
+            <th class="num col-day">Waste</th>
+            <th class="num col-day">Ore</th>
+            <th class="num col-day">Total DS</th>
+            <th class="num col-night">Waste</th>
+            <th class="num col-night">Ore</th>
+            <th class="num col-night">Total NS</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in productionReport" :key="r.pit">
             <td class="prio-cell" :class="`prio-${r.priority}`">{{ r.priority }}</td>
             <td class="exc">{{ r.pit }}</td>
-            <td class="num mono">{{ fmt0(r.day.waste) }}</td>
-            <td class="num mono">{{ fmt0(r.day.ore) }}</td>
-            <td class="num mono strong">{{ fmt0(r.dayTotal) }}</td>
-            <td class="num mono">{{ fmt0(r.night.waste) }}</td>
-            <td class="num mono">{{ fmt0(r.night.ore) }}</td>
-            <td class="num mono strong">{{ fmt0(r.nightTotal) }}</td>
+            <td class="num mono col-day">{{ fmt0(r.day.waste) }}</td>
+            <td class="num mono col-day">{{ fmt0(r.day.ore) }}</td>
+            <td class="num mono strong col-day">{{ fmt0(r.dayTotal) }}</td>
+            <td class="num mono col-night">{{ fmt0(r.night.waste) }}</td>
+            <td class="num mono col-night">{{ fmt0(r.night.ore) }}</td>
+            <td class="num mono strong col-night">{{ fmt0(r.nightTotal) }}</td>
             <td class="num mono strong report-total">{{ fmt0(r.total) }}</td>
             <td class="num mono">{{ fmt0(r.plan) }}</td>
             <td class="num mono report-var" :class="r.variance == null ? '' : r.variance < 0 ? 'neg' : 'pos'">
@@ -138,12 +138,12 @@ const reportTotals = computed(() => {
           <tr>
             <td />
             <td>Total</td>
-            <td class="num">{{ fmt0(reportTotals.dayWaste) }}</td>
-            <td class="num">{{ fmt0(reportTotals.dayOre) }}</td>
-            <td class="num strong">{{ fmt0(reportTotals.dayTotal) }}</td>
-            <td class="num">{{ fmt0(reportTotals.nightWaste) }}</td>
-            <td class="num">{{ fmt0(reportTotals.nightOre) }}</td>
-            <td class="num strong">{{ fmt0(reportTotals.nightTotal) }}</td>
+            <td class="num col-day">{{ fmt0(reportTotals.dayWaste) }}</td>
+            <td class="num col-day">{{ fmt0(reportTotals.dayOre) }}</td>
+            <td class="num strong col-day">{{ fmt0(reportTotals.dayTotal) }}</td>
+            <td class="num col-night">{{ fmt0(reportTotals.nightWaste) }}</td>
+            <td class="num col-night">{{ fmt0(reportTotals.nightOre) }}</td>
+            <td class="num strong col-night">{{ fmt0(reportTotals.nightTotal) }}</td>
             <td class="num strong report-total">{{ fmt0(reportTotals.total) }}</td>
             <td class="num">{{ fmt0(reportTotals.plan) }}</td>
             <td class="num report-var" :class="reportTotals.variance == null ? '' : reportTotals.variance < 0 ? 'neg' : 'pos'">

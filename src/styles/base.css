@@ -523,8 +523,14 @@ table.data.report-table thead .grp {
   border-left: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
-table.data.report-table thead .grp-day { color: var(--day); }
-table.data.report-table thead .grp-night { color: var(--night); }
+table.data.report-table thead .grp-day { color: var(--day); background: rgba(217, 154, 0, 0.18); }
+table.data.report-table thead .grp-night { color: var(--night); background: rgba(56, 103, 166, 0.18); }
+/* Day / Night column tint — the shift colours (gold / blue) washed lightly down
+   each column so the two shifts read as bands. Uses rgba (not color-mix) so the
+   Download-image capture (html2canvas) renders it; the header band above is a
+   touch stronger. Beats the .num header bg and the row-hover bg by specificity. */
+table.data.report-table .col-day { background: rgba(217, 154, 0, 0.10); }
+table.data.report-table .col-night { background: rgba(56, 103, 166, 0.10); }
 table.data.report-table .strong { color: var(--ink); font-weight: 600; }
 table.data.report-table .report-total { background: var(--panel-2); }
 table.data.report-table .report-var.neg,
