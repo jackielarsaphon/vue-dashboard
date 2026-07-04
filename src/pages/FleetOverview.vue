@@ -17,7 +17,6 @@ import TweakColor from "../components/common/TweakColor.vue";
 
 // Whole numbers only — drop the decimals by truncating (never round up).
 const fmt = (n) => Math.trunc(Number(n) || 0).toLocaleString("en-US");
-const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
 
 // When an excavator has no production note, fall back to a status-derived label
 // so the Remark column stays meaningful instead of always reading "Normal".
@@ -82,7 +81,7 @@ const kpiTargets = computed(() => ({
 // Only Total Production leads the KPI strip now — Waste / ORE cards were removed
 // (their tonnage still feeds the charts below via totals/kpiTargets).
 const kpiCards = computed(() => [
-  { label: "Total Production", material: "Production", k: { ...totals.value.production, target: kpiTargets.value.production }, accent: "var(--accent)", kind: "prod" },
+  { label: "Total Production", material: "Production", k: { ...totals.value.production, target: kpiTargets.value.production }, kind: "prod" },
 ]);
 
 // Live per-pit placements grouped by excavator. The Excavator detail table reads
@@ -351,40 +350,33 @@ const areaBars = computed(() => {
 
     <DownloadImageButton :downloading="downloading" @click="downloadImage" />
 
+    <!-- One unified KPI card: Date & Time, Trip this hr, then Trips / Production /
+         Target, each a cell divided by a hairline. -->
     <section class="kpi-strip fleet-kpi">
-      <div class="kpi kpi-clock">
-        <div class="kpi-head"><span class="kpi-label">Date &amp; Time</span></div>
-        <div class="clock-meta">
-          <span class="clock-date">{{ clockDate }}</span>
-          <span class="clock-hour">{{ clockHour }}</span>
+      <div class="kpi kpi-unified">
+        <div class="kpi-cell kpi-cell-clock">
+          <span class="kpi-cell-k">Date &amp; Time</span>
+          <span class="kpi-cell-date">{{ clockDate }}</span>
+          <span class="kpi-cell-hour mono">{{ clockHour }}</span>
         </div>
-      </div>
-
-      <div v-for="card in kpiCards" :key="card.label" class="kpi" :class="`kpi-${card.kind}`">
-        <!-- Two label/value rows: Trips count, then the material tonnage (big). -->
-        <div class="kpi-rows">
-          <div class="kpi-row">
-            <span class="kpi-row-k">Trips</span>
-            <span class="kpi-row-v mono">{{ fmt(card.k.trip) }}</span>
+        <div class="kpi-cell">
+          <span class="kpi-cell-k">Trip this hr</span>
+          <span class="kpi-cell-v mono">{{ fleetStats.tripInHour }}</span>
+        </div>
+        <template v-for="card in kpiCards" :key="card.label">
+          <div class="kpi-cell">
+            <span class="kpi-cell-k">Trips</span>
+            <span class="kpi-cell-v mono">{{ fmt(card.k.trip) }}</span>
           </div>
-          <div class="kpi-row">
-            <span class="kpi-row-k">{{ card.material }}</span>
-            <span class="kpi-row-v big mono">{{ fmt(card.k.tonnes) }}<span class="kpi-row-u">t</span></span>
+          <div class="kpi-cell">
+            <span class="kpi-cell-k">{{ card.material }}</span>
+            <span class="kpi-cell-v mono">{{ fmt(card.k.tonnes) }}<span class="kpi-cell-u">t</span></span>
           </div>
-        </div>
-        <div class="kpi-bar">
-          <div class="kpi-bar-fill" :style="{ width: `${pct(card.k.tonnes, card.k.target)}%`, background: card.accent }" />
-        </div>
-        <div class="kpi-foot mono">Target {{ fmt(card.k.target) }}t</div>
-      </div>
-
-      <div class="kpi kpi-fleet">
-        <!-- No card header — just the stacked ticket: label on top, big trip count below.
-             Excavators / Dump trucks moved to the Excavator detail table header (EX/DT pill). -->
-        <div class="fleet-meta">
-          <span class="fleet-k">Trip this hr</span>
-          <span class="fleet-big mono">{{ fleetStats.tripInHour }}</span>
-        </div>
+          <div class="kpi-cell">
+            <span class="kpi-cell-k">Target</span>
+            <span class="kpi-cell-v mono">{{ fmt(card.k.target) }}<span class="kpi-cell-u">t</span></span>
+          </div>
+        </template>
       </div>
     </section>
 

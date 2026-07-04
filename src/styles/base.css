@@ -250,13 +250,9 @@ button, input, select { font: inherit; }
   grid-template-columns: repeat(3, 1fr) 1.1fr;
   gap: 10px;
 }
-/* Fleet overview: a live Date & Time card leads the strip, then Fleet Status,
-   then Total Production, Waste, ORE. Scoped to this page so the Area page
-   (.area-kpi) keeps its own layout. */
-.fleet-kpi { grid-template-columns: repeat(3, 1fr); }
-.fleet-kpi .kpi-clock { order: 1; }
-.fleet-kpi .kpi-fleet { order: 2; }
-.fleet-kpi .kpi-prod { order: 3; }
+/* Fleet overview: one unified KPI card spanning the strip. Override the base
+   grid so the single card fills the full width. */
+.fleet-kpi { display: block; }
 .kpi {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -274,90 +270,46 @@ button, input, select { font: inherit; }
   width: 3px;
   background: var(--accent);
 }
-.kpi-waste::before { background: var(--waste); }
-.kpi-ore::before { background: var(--ore); }
-.kpi-fleet::before { background: var(--ok); }
-.kpi-clock::before { background: var(--cool); }
-.kpi-clock { display: flex; flex-direction: column; }
-/* Stacked ticket: date on top ("30 Jun"), hour range below in the alert red. */
-.clock-meta {
-  flex: 1;
+/* Unified KPI card: a flex row of cells (Date & Time, Trip this hr, Trips,
+   Production, Target) divided by hairlines. */
+.kpi-unified { display: flex; align-items: stretch; padding: 14px 8px; }
+.kpi-unified .kpi-cell { flex: 1; }
+.kpi-unified .kpi-cell-clock { flex: 1.25; }
+.kpi-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
+  text-align: center;
+  padding: 0 10px;
+}
+.kpi-cell + .kpi-cell { border-left: 1px solid var(--line-soft); }
+.kpi-cell-k {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.kpi-cell-v {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.clock-date {
-  font-size: 36px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1.05;
-}
-.clock-hour {
-  font-size: 27px;
+.kpi-cell-u { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
+/* Date & Time cell: date on top, hour range below in the alert red. */
+.kpi-cell-date { font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1.05; white-space: nowrap; }
+.kpi-cell-hour {
+  font-size: 18px;
   font-weight: 700;
   color: var(--alert);
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
-}
-.kpi-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-.kpi-label {
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  color: var(--ink-2);
-  text-transform: uppercase;
-}
-/* Production / Waste / ORE cards: two label/value rows — label left, value right,
-   the material tonnage bigger. Progress bar + target foot sit below. */
-.kpi-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.kpi-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.kpi-row-k { font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.kpi-row-v {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--ink);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-.kpi-row-v.big { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
-.kpi-row-u { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 3px; }
-.kpi-bar {
-  height: 5px;
-  background: var(--line-soft);
-  border-radius: 999px;
-  position: relative;
-  overflow: hidden;
-}
-.kpi-bar-fill { height: 100%; border-radius: 999px; }
-.kpi-foot { font-size: 10px; color: var(--ink-3); margin-top: 4px; letter-spacing: 0.06em; }
-/* Trip this hr only — Excavators / Dump trucks live in the Excavator detail
-   header pill (.exdt); Ratio was dropped. Stacked ticket like .clock-meta:
-   small label on top, big count below, centered and filling the card. */
-.kpi-fleet { display: flex; flex-direction: column; }
-.fleet-meta {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
   white-space: nowrap;
-}
-.fleet-k { font-size: 14px; font-weight: 600; color: var(--ink-2); }
-.fleet-big {
-  font-size: 56px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
 }
 
 .grid {
