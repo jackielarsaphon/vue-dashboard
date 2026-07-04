@@ -411,7 +411,7 @@ const areaBars = computed(() => {
             </div>
           </div>
           <div class="table-wrap">
-            <table class="data tight">
+            <table class="data tight exc-table">
               <thead>
                 <tr>
                   <th />

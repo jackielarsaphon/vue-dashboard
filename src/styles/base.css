@@ -410,7 +410,7 @@ button, input, select { font: inherit; }
   white-space: nowrap;
 }
 .exdt-k {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--ink);
@@ -418,7 +418,7 @@ button, input, select { font: inherit; }
 .exdt-n {
   background: var(--warn);
   color: #17150e;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
   line-height: 1;
   padding: 3px 8px;
@@ -437,9 +437,9 @@ button, input, select { font: inherit; }
   background: transparent;
   border: 0;
   color: var(--ink-2);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.06em;
-  padding: 4px 8px;
+  padding: 5px 10px;
   border-radius: 3px;
   cursor: pointer;
   font-family: var(--font-mono);
@@ -466,9 +466,9 @@ button, input, select { font: inherit; }
   margin-left: 12px;
   background: var(--chip);
   color: var(--accent);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   border: 1px solid var(--line);
 }
@@ -498,6 +498,13 @@ table.data th {
   top: 0;
 }
 table.data .num { text-align: right; }
+/* Larger header labels on the Excavator detail table so the column titles are
+   legible (scoped so data-entry tables keep their 10px header). */
+table.data.exc-table th { font-size: 12px; letter-spacing: 0.1em; }
+/* …and larger body rows to match — the td size cascades to the AREA / TRIP tags
+   (their spans inherit it) so the whole table scales together. */
+table.data.exc-table td { font-size: 14px; }
+table.data.exc-table tfoot td { font-size: 13px; }
 table.data .sortable { cursor: pointer; user-select: none; }
 table.data .sortable:hover { color: var(--ink); }
 table.data .caret { margin-left: 4px; font-size: 9px; color: var(--accent); }
@@ -551,7 +558,9 @@ table.data tfoot td {
 /* Production report — grouped Day/Night shift table on Fleet overview. A two-row
    header groups Waste/Ore/Total under Day and Night, so headers aren't sticky
    (two stuck rows would overlap) — the table is short enough not to need it. */
-table.data.report-table th { position: static; text-align: right; }
+/* Larger header labels on the Production report so the column titles are legible
+   (scoped here so other .data tables keep their 10px header). */
+table.data.report-table th { position: static; text-align: right; font-size: 12px; letter-spacing: 0.1em; }
 table.data.report-table th:first-child,
 table.data.report-table td:first-child { text-align: center; }
 table.data.report-table th.num,
