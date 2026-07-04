@@ -361,7 +361,7 @@ const areaBars = computed(() => {
         </div>
         <div class="kpi-cell">
           <span class="kpi-cell-k">Trip this hr</span>
-          <span class="kpi-cell-v mono">{{ fleetStats.tripInHour }}</span>
+          <span class="kpi-cell-v mono lg">{{ fleetStats.tripInHour }}</span>
         </div>
         <template v-for="card in kpiCards" :key="card.label">
           <div class="kpi-cell">

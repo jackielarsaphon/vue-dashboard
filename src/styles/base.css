@@ -300,6 +300,7 @@ button, input, select { font: inherit; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.kpi-cell-v.lg { font-size: 40px; font-weight: 800; }
 .kpi-cell-u { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
 /* Date & Time cell: date on top, hour range below in the alert red. */
 .kpi-cell-date { font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1.05; white-space: nowrap; }
