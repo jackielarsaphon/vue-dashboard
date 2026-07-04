@@ -100,6 +100,11 @@ button, input, select { font: inherit; }
   grid-template-rows: auto auto auto auto;
   gap: 10px;
   padding: 10px;
+  /* Cap the width and centre it so the dashboard doesn't stretch edge-to-edge
+     (and look sparse) on wide / ultrawide monitors. */
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
 }
 :root[data-density="regular"] .dash { gap: 14px; padding: 14px; }
 .dash-toolbar { display: flex; justify-content: flex-end; }
@@ -248,12 +253,10 @@ button, input, select { font: inherit; }
 /* Fleet overview: a live Date & Time card leads the strip, then Fleet Status,
    then Total Production, Waste, ORE. Scoped to this page so the Area page
    (.area-kpi) keeps its own layout. */
-.fleet-kpi { grid-template-columns: 1.1fr 1.1fr repeat(3, 0.95fr); }
+.fleet-kpi { grid-template-columns: repeat(3, 1fr); }
 .fleet-kpi .kpi-clock { order: 1; }
 .fleet-kpi .kpi-fleet { order: 2; }
 .fleet-kpi .kpi-prod { order: 3; }
-.fleet-kpi .kpi-waste { order: 4; }
-.fleet-kpi .kpi-ore { order: 5; }
 .kpi {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -276,36 +279,29 @@ button, input, select { font: inherit; }
 .kpi-fleet::before { background: var(--ok); }
 .kpi-clock::before { background: var(--cool); }
 .kpi-clock { display: flex; flex-direction: column; }
-/* DATE / SHIFT / HOUR on a single row, like the top-bar meta boxes. */
+/* Stacked ticket: date on top ("30 Jun"), hour range below in the alert red. */
 .clock-meta {
   flex: 1;
   display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
+  flex-direction: column;
   align-items: center;
-  gap: 16px;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
 }
-.cmeta { display: flex; flex-direction: column; gap: 3px; white-space: nowrap; }
-.cmeta-k { font-size: 10px; color: var(--ink-3); letter-spacing: 0.14em; }
-.cmeta-v {
-  font-size: 16px;
-  font-weight: 600;
+.clock-date {
+  font-size: 36px;
+  font-weight: 800;
   color: var(--ink);
+  line-height: 1.05;
+}
+.clock-hour {
+  font-size: 27px;
+  font-weight: 700;
+  color: var(--alert);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-.cmeta-v.accent { color: var(--accent); }
-.cmeta-box {
-  align-self: flex-start;
-  background: none;
-  color: var(--ink);
-  border: none;
-  padding: 0;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
+  line-height: 1.05;
 }
 .kpi-head {
   display: flex;
@@ -319,24 +315,20 @@ button, input, select { font: inherit; }
   color: var(--ink-2);
   text-transform: uppercase;
 }
-.kpi-pct { font-size: 12px; color: var(--ink-2); }
-.kpi-main {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+/* Production / Waste / ORE cards: two label/value rows — label left, value right,
+   the material tonnage bigger. Progress bar + target foot sit below. */
+.kpi-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.kpi-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.kpi-row-k { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.kpi-row-v {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-.kpi-big { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
-.kpi-side { text-align: right; }
-.kpi-trip { font-size: 18px; font-weight: 500; color: var(--ink); }
-.kpi-unit {
-  font-size: 10px;
-  color: var(--ink-3);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  margin-top: 3px;
-}
+.kpi-row-v.big { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+.kpi-row-u { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 3px; }
 .kpi-bar {
   height: 5px;
   background: var(--line-soft);
@@ -346,17 +338,38 @@ button, input, select { font: inherit; }
 }
 .kpi-bar-fill { height: 100%; border-radius: 999px; }
 .kpi-foot { font-size: 10px; color: var(--ink-3); margin-top: 4px; letter-spacing: 0.06em; }
-.fleet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.fleet-n { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+/* Trip this hr only — Excavators / Dump trucks live in the Excavator detail
+   header pill (.exdt); Ratio was dropped. Stacked ticket like .clock-meta:
+   small label on top, big count below, centered and filling the card. */
+.kpi-fleet { display: flex; flex-direction: column; }
+.fleet-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.fleet-k { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.fleet-big {
+  font-size: 56px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
 
 .grid {
   display: grid;
-  grid-template-columns: 1.55fr 1fr;
+  grid-template-columns: 1fr;
   grid-template-rows: auto auto;
   gap: 10px;
 }
+/* Fleet overview now has a single full-width column (the shift-area chart moved to
+   Area production). col-side is retained only for the mobile fallback below. */
 .col-main { display: grid; gap: 10px; grid-row: 1 / 3; grid-column: 1; }
-.col-side { display: grid; gap: 10px; grid-row: 1 / 3; grid-column: 2; }
+.col-side { display: grid; gap: 10px; grid-row: 1 / 3; grid-column: 1; }
 .col-bottom { display: none; }
 
 .panel {
@@ -384,6 +397,34 @@ button, input, select { font: inherit; }
   color: var(--ink-2);
 }
 .panel-tools { display: flex; align-items: center; gap: 8px; }
+/* Title + the EX/DT counts pill sitting beside it (moved from the Fleet Status card). */
+.panel-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.exdt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px 8px;
+  background: var(--panel);
+  white-space: nowrap;
+}
+.exdt-k {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.exdt-n {
+  background: var(--warn);
+  color: #17150e;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
 .seg {
   display: flex;
   gap: 0;
@@ -558,14 +599,6 @@ table.data.report-table td.prio-4 { background: var(--ok); }
   70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
 }
 
-.hbars { display: grid; gap: 4px; }
-.hbar { display: grid; grid-template-columns: 48px 1fr 38px; align-items: center; gap: 8px; }
-.hbar-label { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); }
-.hbar-track { display: flex; height: 16px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
-.hbar-fill { display: flex; align-items: center; justify-content: center; height: 100%; min-width: 0; transition: width 0.4s; }
-.hbar-seg-val { font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; color: #fff; line-height: 1; padding: 0 2px; white-space: nowrap; overflow: hidden; }
-.hbar-value { text-align: right; font-size: 12px; color: var(--ink); font-weight: 600; }
-
 .shift-panel { padding-bottom: 10px; }
 .shift-dot { width: 9px; height: 9px; border-radius: 2px; }
 .bk-k { font-size: 9px; letter-spacing: 0.1em; color: var(--ink-3); text-transform: uppercase; }
@@ -625,6 +658,10 @@ table.data.report-table td.prio-4 { background: var(--ok); }
 .sf-v { font-size: 14px; font-weight: 600; color: var(--ink); }
 .sf-v.pos { color: var(--ok); }
 .sf-v.warn { color: var(--warn); }
+/* Larger footer text so the totals row is legible on the dashboard. Scoped to
+   the shift footer so the shared .bk-k label stays its usual size elsewhere. */
+.shift-footer .bk-k { font-size: 11px; }
+.shift-footer .sf-v { font-size: 18px; }
 
 .chart { width: 100%; height: auto; display: block; }
 /* Production by shift - area: columns are a fixed width (set inline per pit count),
@@ -633,10 +670,16 @@ table.data.report-table td.prio-4 { background: var(--ok); }
 .shift-area-scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
 .shift-area-scroll::-webkit-scrollbar { height: 6px; }
 .shift-area-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
-.shift-area-chart { min-width: 100%; max-width: none; }
+/* Width is set inline to fill the panel (or the pits' natural width, whichever is
+   larger, so it scrolls when there are many pits). viewBox units are 1:1 with px,
+   so height follows at the chart's H with no distortion. */
+.shift-area-chart { display: block; max-width: none; }
 .chart .grid { stroke: var(--grid); stroke-width: 1; }
 .chart .axis { fill: var(--ink-3); font-size: 9px; font-family: var(--font-mono); }
 .chart .axis.tiny { font-size: 8px; }
+/* Area codes under the shift-area bars — larger than the y-axis ticks so they're
+   legible on the dashboard. */
+.chart .col-label { fill: var(--ink-2); font-size: 12px; font-family: var(--font-mono); font-weight: 600; }
 .chart .axis-x { fill: var(--ink-3); font-size: 9px; }
 .chart .bar-label { fill: var(--ink); font-size: 9px; }
 .chart .target-line { stroke: var(--alert); stroke-width: 1.2; stroke-dasharray: 4 3; }
@@ -651,13 +694,15 @@ table.data.report-table td.prio-4 { background: var(--ok); }
   stroke-opacity: 0.5;
 }
 :root[data-theme="light"] .chart .bar-label { fill: var(--ink-2); }
-.chart .plan-col { fill: var(--ink-3); opacity: 0.16; }
+.chart .plan-col { fill: var(--ink-3); opacity: 0.32; }
 .chart .seg-label { fill: var(--ink); font-size: 11px; }
 .chart .seg-label.on-day { fill: #fff; }
+.chart .seg-label.on-night { fill: #fff; }
+.chart .seg-label.total { font-weight: 700; }
 .chart .shift-area-col { cursor: pointer; }
 .chart .shift-area-col rect[fill="var(--day)"],
 .chart .shift-area-col rect[fill="var(--night)"] { transition: opacity 0.12s ease; }
-.chart .shift-area-col:hover .plan-col { opacity: 0.26; }
+.chart .shift-area-col:hover .plan-col { opacity: 0.42; }
 .chart .tip-box { fill: var(--panel); stroke: var(--line); stroke-width: 1; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25)); }
 .chart .tip-title { fill: var(--ink); font-size: 10px; }
 .chart .tip-row { fill: var(--ink-2); font-size: 10px; }

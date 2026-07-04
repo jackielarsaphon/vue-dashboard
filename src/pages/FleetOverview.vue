@@ -15,7 +15,8 @@ import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
 import TweakColor from "../components/common/TweakColor.vue";
 
-const fmt = (n) => Number(n).toLocaleString("en-US");
+// Whole numbers only — drop the decimals by truncating (never round up).
+const fmt = (n) => Math.trunc(Number(n) || 0).toLocaleString("en-US");
 const pct = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
 
 // When an excavator has no production note, fall back to a status-derived label
@@ -42,20 +43,21 @@ watchEffect(() => {
 
 const { selection } = useShiftSelection();
 
-// Date/Time card that leads the KPI strip. Mirrors the top-bar selection
-// (DATE / SHIFT / HOUR) so the report header shows exactly which slot is on
-// screen — read-only, styled like the top-bar meta boxes.
+// Date/Time card that leads the KPI strip. Mirrors the top-bar selection —
+// read-only, a stacked ticket: date on top ("30 Jun"), hour range below.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const clockDate = computed(() => {
   const [y, m, d] = String(selection.date).split("-");
-  return d && m && y ? `${d}/${m}/${y}` : "";
+  const month = MONTHS[Number(m) - 1];
+  return d && month && y ? `${Number(d)} ${month}` : "";
 });
 const clockHour = computed(() => {
   const a = String(selection.hour).padStart(2, "0");
   const b = String((selection.hour + 1) % 24).padStart(2, "0");
-  return `${a}:00 - ${b}:00`;
+  return `${a}:00-${b}:00`;
 });
 const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, placementTrucksFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
-const { planTonnesForDate, planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
+const { planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
 const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
 
 // Pick up production entered on another device (e.g. a phone) without a manual
@@ -77,10 +79,10 @@ const kpiTargets = computed(() => ({
   ore: planTonnesTotals.value.ore,
 }));
 
+// Only Total Production leads the KPI strip now — Waste / ORE cards were removed
+// (their tonnage still feeds the charts below via totals/kpiTargets).
 const kpiCards = computed(() => [
-  { label: "Total Production", k: { ...totals.value.production, target: kpiTargets.value.production }, accent: "var(--accent)", kind: "prod" },
-  { label: "Total Waste", k: { ...totals.value.waste, target: kpiTargets.value.waste }, accent: WASTE_COLOR, kind: "waste" },
-  { label: "Total ORE", k: { ...totals.value.ore, target: kpiTargets.value.ore }, accent: "var(--ore)", kind: "ore" },
+  { label: "Total Production", material: "Production", k: { ...totals.value.production, target: kpiTargets.value.production }, accent: "var(--accent)", kind: "prod" },
 ]);
 
 // Live per-pit placements grouped by excavator. The Excavator detail table reads
@@ -177,16 +179,15 @@ const excRows = computed(() =>
   }),
 );
 
-// Both the Excavator detail table and the Production by excavator chart are scoped
-// to the SELECTED hour (the HOUR box): they show what each excavator did in that
-// hour — units that logged trips OR wrote a Production note for the hour appear.
+// The Excavator detail table is scoped to the SELECTED hour (the HOUR box): it
+// shows what each excavator did in that hour — units that logged trips OR wrote a
+// Production note for the hour appear.
 const excHourRows = computed(() => excRows.value.filter((row) => row.trip > 0 || row.hasNote));
 
 const sortKey = ref("exc");
 const asc = ref(true);
 const area = ref("ALL");
 const areas = computed(() => ["ALL", ...Array.from(new Set(excHourRows.value.map((row) => row.area).filter(Boolean)))]);
-const maxTrip = computed(() => Math.max(1, ...excHourRows.value.map((row) => row.trip)));
 
 const rows = computed(() => {
   const filtered = area.value === "ALL" ? [...excHourRows.value] : excHourRows.value.filter((row) => row.area === area.value);
@@ -214,9 +215,6 @@ const setSort = (key) => {
   }
 };
 
-// Production by excavator — scoped to the SELECTED hour too (matches Excavator detail).
-const productionRows = computed(() => [...excHourRows.value].sort((a, b) => b.trip - a.trip));
-
 const fleetStats = computed(() => {
   // Mirror the Excavator detail table exactly, hour-scoped: Excavators = the units
   // active this hour (its rows), Dump trucks = the sum of that table's Trucks column
@@ -224,132 +222,10 @@ const fleetStats = computed(() => {
   const active = excHourRows.value;
   const excavatorCount = active.length;
   const trucks = active.reduce((sum, row) => sum + row.trucks, 0);
-  const ratio = excavatorCount > 0 ? (trucks / excavatorCount).toFixed(1) : "0.0";
   const tripInHour = active.reduce((sum, row) => sum + row.trip, 0);
-  return { excavators: excavatorCount, trucks, ratio, tripInHour };
+  return { excavators: excavatorCount, trucks, tripInHour };
 });
 
-// Shift summary: Day vs Night production TONNES for the selected date (sum across
-// all 24 hours). Tonnes — not BCM — so this panel matches the Total Production KPI
-// and the tonnes-based Plan it's compared against.
-const shiftTotals = (shiftType) => {
-  let soft = 0;
-  let ore = 0;
-  for (let hour = 0; hour < 24; hour += 1) {
-    Object.values(getBucket(selection.date, shiftType, hour)).forEach((entry) => {
-      entry.rows.forEach((row) => {
-        const tonnes = rowTonnes(row);
-        if (isWaste(row.material)) soft += tonnes;
-        else ore += tonnes;
-      });
-    });
-  }
-  return { soft, ore };
-};
-const shifts = computed(() => [
-  { key: "day", name: "Day", ...shiftTotals("Day"), color: "var(--day)" },
-  { key: "night", name: "Night", ...shiftTotals("Night"), color: "var(--night)" },
-]);
-const totalAll = computed(() => shifts.value.reduce((sum, item) => sum + item.soft + item.ore, 0));
-// PLAN is the single daily Plan Production total (both shifts combined): the sum
-// of every pattern's soil + ore for the selected date.
-const totalPlan = computed(() => planTonnesForDate(selection.date));
-const planPct = computed(() => pct(totalAll.value, totalPlan.value));
-
-// Production by shift - area: Day vs Night TONNES per area, for the selected date.
-// Tonnes so the bars line up with the per-pit Plan Production column and the Total
-// Production KPI.
-const areasByShift = computed(() => {
-  // Plan column (the cream shadow) = each pit's Plan Production total for the date
-  // (soil + ore), not the static area target. Pits with no plan entry show no shadow.
-  const plans = getDatePlans(selection.date);
-  const planTotal = (area) => {
-    const p = plans[area];
-    return p ? p.soil + p.ore : 0;
-  };
-  const byArea = new Map();
-  // Seed a column per pit that has a placed excavator.
-  areaExcavators.value.forEach((placement) => {
-    if (!placement.area) return;
-    if (!byArea.has(placement.area)) byArea.set(placement.area, { area: placement.area, day: 0, night: 0, plan: planTotal(placement.area) });
-  });
-  ["Day", "Night"].forEach((shiftType) => {
-    for (let hour = 0; hour < 24; hour += 1) {
-      const bucket = getBucket(selection.date, shiftType, hour);
-      // Each entry carries its own pit (entry.area), so trips land in the pit they
-      // were logged for — the same excavator's trips split correctly across pits.
-      Object.values(bucket).forEach((entry) => {
-        const stat = byArea.get(entry.area);
-        if (!stat) return;
-        const tonnes = entry.rows.reduce((sum, row) => sum + rowTonnes(row), 0);
-        stat[shiftType === "Day" ? "day" : "night"] += tonnes;
-      });
-    }
-  });
-  return Array.from(byArea.values()).sort((a, b) => b.day + b.night - (a.day + a.night));
-});
-const areaShiftMax = computed(() => Math.max(1, ...areasByShift.value.map((item) => Math.max(item.day, item.night))));
-
-// Vertical STACKED columns for "Production by shift - area": Day (bottom) + Night
-// (top), with a cream Plan column behind reaching the pit's Plan Production total.
-// padL leaves room for the y-axis labels, which grow to 6–7 digits (e.g. 30,000)
-// once the bars/plan use real tonnes — too small a pad clipped them at the edge.
-const shiftAreaChart = { H: 300, padL: 54, padR: 10, padT: 20, padB: 34 };
-// Each pit gets a fixed-width column, so the chart grows along X as pits are added
-// (and scrolls horizontally once it outgrows the panel) instead of squeezing ever-
-// thinner bars into a fixed width. CSS min-width:100% still lets a few pits stretch
-// to fill the panel; beyond that the column width is what drives the scroll.
-const SHIFT_AREA_COL_W = 92;
-const shiftAreaW = computed(() => shiftAreaChart.padL + shiftAreaChart.padR + Math.max(1, areasByShift.value.length) * SHIFT_AREA_COL_W);
-const shiftAreaYMax = computed(() => {
-  const max = Math.max(1, ...areasByShift.value.map((item) => Math.max(item.day + item.night, item.plan)));
-  const step = max > 20000 ? 10000 : max > 4000 ? 5000 : max > 2000 ? 1000 : 500;
-  return Math.ceil(max / step) * step;
-});
-const shiftAreaTicks = computed(() => [0, 0.25, 0.5, 0.75, 1].map((factor) => Math.round(shiftAreaYMax.value * factor)));
-const shiftAreaY = (value) => {
-  const { H, padT, padB } = shiftAreaChart;
-  return padT + (H - padT - padB) * (1 - value / shiftAreaYMax.value);
-};
-const shiftAreaBars = computed(() => {
-  const { padL, padR } = shiftAreaChart;
-  const W = shiftAreaW.value;
-  const cw = (W - padL - padR) / Math.max(1, areasByShift.value.length);
-  const bw = cw * 0.64;
-  const baseY = shiftAreaY(0);
-  return areasByShift.value.map((item, i) => {
-    const cx = padL + i * cw + cw / 2;
-    return {
-      ...item,
-      cx,
-      bw,
-      x: cx - bw / 2,
-      baseY,
-      dayH: baseY - shiftAreaY(item.day),
-      nightH: baseY - shiftAreaY(item.night),
-      planY: shiftAreaY(item.plan),
-      stackTopY: shiftAreaY(item.day + item.night),
-      sum: item.day + item.night,
-    };
-  });
-});
-
-// Tap/hover a column to reveal a tooltip with both shifts' numbers.
-const activeShiftArea = ref(null);
-const toggleShiftArea = (area) => {
-  activeShiftArea.value = activeShiftArea.value === area ? null : area;
-};
-const shiftAreaTip = computed(() => {
-  const bar = shiftAreaBars.value.find((item) => item.area === activeShiftArea.value);
-  if (!bar) return null;
-  const { padR, padL } = shiftAreaChart;
-  const W = shiftAreaW.value;
-  const tw = 116;
-  const th = 78;
-  const x = Math.min(Math.max(bar.cx - tw / 2, padL), W - padR - tw);
-  const y = Math.max(shiftAreaChart.padT, bar.stackTopY - th - 8);
-  return { ...bar, x, y, tw, th };
-});
 
 // Total trips by hour: PER-HOUR series for the selected date, covering BOTH shifts
 // — Day (06→17) and Night (18→05) — mapped onto the operational-day axis. Each bar
@@ -479,34 +355,21 @@ const areaBars = computed(() => {
       <div class="kpi kpi-clock">
         <div class="kpi-head"><span class="kpi-label">Date &amp; Time</span></div>
         <div class="clock-meta">
-          <div class="cmeta">
-            <span class="cmeta-k">DATE</span>
-            <span class="cmeta-v accent">{{ clockDate }}</span>
-          </div>
-          <div class="cmeta">
-            <span class="cmeta-k">SHIFT</span>
-            <span class="cmeta-v">{{ selection.shiftType }}</span>
-          </div>
-          <div class="cmeta">
-            <span class="cmeta-k">HOUR</span>
-            <span class="cmeta-box">{{ clockHour }}</span>
-          </div>
+          <span class="clock-date">{{ clockDate }}</span>
+          <span class="clock-hour">{{ clockHour }}</span>
         </div>
       </div>
 
       <div v-for="card in kpiCards" :key="card.label" class="kpi" :class="`kpi-${card.kind}`">
-        <div class="kpi-head">
-          <span class="kpi-label">{{ card.label }}</span>
-          <span class="kpi-pct mono">{{ pct(card.k.tonnes, card.k.target) }}%</span>
-        </div>
-        <div class="kpi-main">
-          <div>
-            <div class="kpi-big mono">{{ fmt(card.k.tonnes) }}</div>
-            <div class="kpi-unit">Tonnes</div>
+        <!-- Two label/value rows: Trips count, then the material tonnage (big). -->
+        <div class="kpi-rows">
+          <div class="kpi-row">
+            <span class="kpi-row-k">Trips</span>
+            <span class="kpi-row-v mono">{{ fmt(card.k.trip) }}</span>
           </div>
-          <div class="kpi-side">
-            <div class="kpi-trip mono">{{ fmt(card.k.trip) }}</div>
-            <div class="kpi-unit">Trips</div>
+          <div class="kpi-row">
+            <span class="kpi-row-k">{{ card.material }}</span>
+            <span class="kpi-row-v big mono">{{ fmt(card.k.tonnes) }}<span class="kpi-row-u">t</span></span>
           </div>
         </div>
         <div class="kpi-bar">
@@ -516,24 +379,11 @@ const areaBars = computed(() => {
       </div>
 
       <div class="kpi kpi-fleet">
-        <div class="kpi-head"><span class="kpi-label">Fleet Status</span></div>
-        <div class="fleet-grid">
-          <div>
-            <div class="fleet-n mono">{{ fleetStats.excavators }}</div>
-            <div class="kpi-unit">Excavators</div>
-          </div>
-          <div>
-            <div class="fleet-n mono">{{ fleetStats.trucks }}</div>
-            <div class="kpi-unit">Dump trucks</div>
-          </div>
-          <div>
-            <div class="fleet-n mono">1:{{ fleetStats.ratio }}</div>
-            <div class="kpi-unit">Ratio</div>
-          </div>
-          <div>
-            <div class="fleet-n mono accent">{{ fleetStats.tripInHour }}</div>
-            <div class="kpi-unit">Trips this hr</div>
-          </div>
+        <!-- No card header — just the stacked ticket: label on top, big trip count below.
+             Excavators / Dump trucks moved to the Excavator detail table header (EX/DT pill). -->
+        <div class="fleet-meta">
+          <span class="fleet-k">Trip this hr</span>
+          <span class="fleet-big mono">{{ fleetStats.tripInHour }}</span>
         </div>
       </div>
     </section>
@@ -542,7 +392,15 @@ const areaBars = computed(() => {
       <section class="col-main">
         <div class="panel">
           <div class="panel-head">
-            <h2>Excavator detail</h2>
+            <div class="panel-title">
+              <h2>Excavator detail</h2>
+              <div class="exdt">
+                <span class="exdt-k">EX</span>
+                <span class="exdt-n mono">{{ fleetStats.excavators }}</span>
+                <span class="exdt-k">DT</span>
+                <span class="exdt-n mono">{{ fleetStats.trucks }}</span>
+              </div>
+            </div>
             <div class="panel-tools">
               <span class="now-pill mono">Hour {{ String(selection.hour).padStart(2, "0") }}:00</span>
               <div class="seg">
@@ -675,103 +533,6 @@ const areaBars = computed(() => {
             </g>
             <text :x="hourlyChart.padL" :y="hourlyChart.H - 4" class="axis-x">Hour (shift start)</text>
           </svg>
-        </div>
-      </section>
-
-      <section class="col-side">
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Production by excavator</h2>
-            <div class="legend mono">
-              <span><span class="lg-dot" style="background: var(--ore)" />Ore</span>
-              <span><span class="lg-dot ml" :style="{ background: WASTE_COLOR }" />Waste</span>
-            </div>
-          </div>
-          <div class="hbars">
-            <div v-for="row in productionRows" :key="row.exc" class="hbar">
-              <div class="hbar-label">{{ row.exc }}</div>
-              <div class="hbar-track">
-                <div class="hbar-fill" :style="{ width: `${(row.oreTrip / maxTrip) * 100}%`, background: 'var(--ore)' }" :title="`Ore ${row.oreTrip}`">
-                  <span v-if="row.oreTrip > 0" class="hbar-seg-val">{{ row.oreTrip }}</span>
-                </div>
-                <div class="hbar-fill" :style="{ width: `${(row.wasteTrip / maxTrip) * 100}%`, background: WASTE_COLOR }" :title="`Waste ${row.wasteTrip}`">
-                  <span v-if="row.wasteTrip > 0" class="hbar-seg-val">{{ row.wasteTrip }}</span>
-                </div>
-              </div>
-              <div class="hbar-value mono">{{ row.trip }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel shift-panel">
-          <div class="bytype">
-            <div class="bytype-head">
-              <span class="bytype-title">Production by shift - area</span>
-              <span class="legend mono">
-                <span class="lg-dot" style="background: var(--day)" />Day
-                <span class="lg-dot ml" style="background: var(--night)" />Night
-              </span>
-            </div>
-            <div class="shift-area-scroll">
-            <svg :viewBox="`0 0 ${shiftAreaW} ${shiftAreaChart.H}`" :style="{ width: shiftAreaW + 'px' }" class="chart shift-area-chart">
-              <g v-for="tick in shiftAreaTicks" :key="tick">
-                <line :x1="shiftAreaChart.padL" :x2="shiftAreaW - shiftAreaChart.padR" :y1="shiftAreaY(tick)" :y2="shiftAreaY(tick)" class="grid" />
-                <text :x="shiftAreaChart.padL - 7" :y="shiftAreaY(tick) + 3" class="axis mono tiny" text-anchor="end">{{ fmt(tick) }}</text>
-              </g>
-              <g
-                v-for="bar in shiftAreaBars"
-                :key="bar.area"
-                class="shift-area-col"
-                :class="{ active: activeShiftArea === bar.area }"
-                @click="toggleShiftArea(bar.area)"
-                @mouseenter="activeShiftArea = bar.area"
-                @mouseleave="activeShiftArea = null"
-              >
-                <!-- Plan column (cream) behind -->
-                <rect :x="bar.x" :y="bar.planY" :width="bar.bw" :height="bar.baseY - bar.planY" class="plan-col" />
-                <!-- Actual: Day (bottom) + Night (top) -->
-                <rect :x="bar.x" :y="bar.baseY - bar.dayH" :width="bar.bw" :height="bar.dayH" fill="var(--day)" />
-                <rect :x="bar.x" :y="bar.stackTopY" :width="bar.bw" :height="bar.nightH" fill="var(--night)" />
-                <text v-if="bar.dayH > 14" :x="bar.cx" :y="bar.baseY - bar.dayH / 2 + 3" class="seg-label mono on-day" text-anchor="middle">{{ fmt(bar.day) }}</text>
-                <text v-if="bar.night" :x="bar.cx" :y="bar.stackTopY - 4" class="seg-label mono" text-anchor="middle">{{ fmt(bar.night) }}</text>
-                <text :x="bar.cx" :y="bar.baseY + 14" class="axis mono tiny" text-anchor="middle">{{ bar.area }}</text>
-                <!-- Full-height hit area so the whole column responds to taps -->
-                <rect :x="bar.x - 4" :y="shiftAreaChart.padT" :width="bar.bw + 8" :height="bar.baseY - shiftAreaChart.padT" fill="transparent" />
-              </g>
-              <!-- Tooltip with both shifts' numbers -->
-              <g v-if="shiftAreaTip" class="shift-area-tip" pointer-events="none">
-                <rect :x="shiftAreaTip.x" :y="shiftAreaTip.y" :width="shiftAreaTip.tw" :height="shiftAreaTip.th" rx="4" class="tip-box" />
-                <text :x="shiftAreaTip.x + 8" :y="shiftAreaTip.y + 15" class="tip-title mono">{{ shiftAreaTip.area }}</text>
-                <line :x1="shiftAreaTip.x + 8" :x2="shiftAreaTip.x + shiftAreaTip.tw - 8" :y1="shiftAreaTip.y + 21" :y2="shiftAreaTip.y + 21" class="grid" />
-                <circle :cx="shiftAreaTip.x + 12" :cy="shiftAreaTip.y + 32" r="3" fill="var(--day)" />
-                <text :x="shiftAreaTip.x + 20" :y="shiftAreaTip.y + 35" class="tip-row mono">Day</text>
-                <text :x="shiftAreaTip.x + shiftAreaTip.tw - 8" :y="shiftAreaTip.y + 35" class="tip-val mono" text-anchor="end">{{ fmt(shiftAreaTip.day) }}</text>
-                <circle :cx="shiftAreaTip.x + 12" :cy="shiftAreaTip.y + 46" r="3" fill="var(--night)" />
-                <text :x="shiftAreaTip.x + 20" :y="shiftAreaTip.y + 49" class="tip-row mono">Night</text>
-                <text :x="shiftAreaTip.x + shiftAreaTip.tw - 8" :y="shiftAreaTip.y + 49" class="tip-val mono" text-anchor="end">{{ fmt(shiftAreaTip.night) }}</text>
-                <text :x="shiftAreaTip.x + 20" :y="shiftAreaTip.y + 64" class="tip-row mono strong">Total</text>
-                <text :x="shiftAreaTip.x + shiftAreaTip.tw - 8" :y="shiftAreaTip.y + 64" class="tip-val mono strong" text-anchor="end">{{ fmt(shiftAreaTip.sum) }}</text>
-              </g>
-            </svg>
-            </div>
-          </div>
-
-          <div class="shift-divider" />
-
-          <div class="shift-footer">
-            <div class="sf-cell">
-              <span class="bk-k">Total - 24h</span>
-              <span class="sf-v mono accent">{{ fmt(totalAll) }}</span>
-            </div>
-            <div class="sf-cell">
-              <span class="bk-k">vs plan</span>
-              <span class="sf-v mono" :class="planPct >= 100 ? 'pos' : 'warn'">{{ planPct }}%</span>
-            </div>
-            <div class="sf-cell">
-              <span class="bk-k">Plan</span>
-              <span class="sf-v mono">{{ fmt(totalPlan) }}</span>
-            </div>
-          </div>
         </div>
       </section>
 
