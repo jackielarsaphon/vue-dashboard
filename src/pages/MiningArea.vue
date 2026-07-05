@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watchEffect } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useMiningAreas } from "../composables/useMiningAreas.js";
 import TopBar from "../components/common/TopBar.vue";
+import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -80,7 +81,16 @@ const saveEdit = () => {
   cancelEdit();
 };
 
-const deleteArea = (area) => {
+// Removing a code is destructive (it drops out of the Add area dropdown), so
+// confirm via a themed dialog first. The x button opens it; confirmDelete removes.
+const pendingDelete = ref(null);
+const requestDelete = (area) => {
+  pendingDelete.value = area;
+};
+const confirmDelete = () => {
+  const area = pendingDelete.value;
+  pendingDelete.value = null;
+  if (!area) return;
   removeArea(area);
   if (editingArea.value === area) cancelEdit();
   message.value = `${area} removed from Mining data master`;
@@ -139,7 +149,7 @@ const deleteArea = (area) => {
               </template>
               <template v-else>
                 <button class="mini-action" type="button" @click="startEdit(area)">Edit</button>
-                <button class="gt-del" type="button" aria-label="Remove mining data" @click="deleteArea(area)">x</button>
+                <button class="gt-del" type="button" aria-label="Remove mining data" @click="requestDelete(area)">x</button>
               </template>
             </div>
           </div>
@@ -179,6 +189,17 @@ const deleteArea = (area) => {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="pendingDelete !== null"
+      title="Remove mining data?"
+      :message="pendingDelete ? `Remove &quot;${pendingDelete}&quot; from the Mining data master? It will no longer appear in the Add area dropdown.` : ''"
+      confirm-label="Remove"
+      cancel-label="Cancel"
+      danger
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
 
     <TweaksPanel>
       <TweakSection label="Theme" />

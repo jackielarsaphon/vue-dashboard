@@ -3,6 +3,7 @@ import { computed, ref, watchEffect } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
 import TopBar from "../components/common/TopBar.vue";
+import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -74,7 +75,15 @@ const commit = async () => {
     }
     message.value = `${code} updated`;
   } else {
-    const result = await store.create({ code, company, active: true });
+    // A removed unit is only soft-deleted (active = false) — its row still holds the
+    // `code`, which is UNIQUE — so re-adding that code would 409 on a fresh insert.
+    // Re-adding a code that matches a soft-deleted row REACTIVATES that same row
+    // instead: no unique clash, and its logged trips (production_entries reference the
+    // id) stay intact. Only insert a brand-new row when no archived code matches.
+    const archived = store.items.value.find((row) => !row.active && row.code.toUpperCase() === code);
+    const result = archived
+      ? await store.update(archived.id, { active: true, company })
+      : await store.create({ code, company, active: true });
     if (!result.ok) {
       message.value = result.error || "Could not add";
       return;
@@ -84,7 +93,16 @@ const commit = async () => {
   closeModal();
 };
 
-const removeRow = async (row) => {
+// Removing a unit soft-deletes it, so confirm via a themed dialog first.
+// The x button opens it; confirmDelete does the actual removal.
+const pendingDelete = ref(null);
+const requestDelete = (row) => {
+  pendingDelete.value = row;
+};
+const confirmDelete = async () => {
+  const row = pendingDelete.value;
+  pendingDelete.value = null;
+  if (!row) return;
   await store.update(row.id, { active: false });
   message.value = `${row.code} removed from Excavator master`;
 };
@@ -129,7 +147,7 @@ const removeRow = async (row) => {
 
             <div class="mining-actions">
               <button class="mini-action" type="button" @click="openEdit(row)">Edit</button>
-              <button class="gt-del" type="button" aria-label="Remove excavator" @click="removeRow(row)">x</button>
+              <button class="gt-del" type="button" aria-label="Remove excavator" @click="requestDelete(row)">x</button>
             </div>
           </div>
           <div v-if="rows.length === 0" class="mining-row">
@@ -180,6 +198,17 @@ const removeRow = async (row) => {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="pendingDelete !== null"
+      title="Remove excavator?"
+      :message="pendingDelete ? `Remove &quot;${pendingDelete.code}&quot; from the Excavator master?` : ''"
+      confirm-label="Remove"
+      cancel-label="Cancel"
+      danger
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
 
     <TweaksPanel>
       <TweakSection label="Theme" />

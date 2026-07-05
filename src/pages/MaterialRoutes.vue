@@ -3,6 +3,7 @@ import { computed, reactive, ref, watchEffect } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useMaterialRoutes } from "../composables/useMaterialRoutes.js";
 import TopBar from "../components/common/TopBar.vue";
+import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -80,7 +81,16 @@ const commit = () => {
   closeModal();
 };
 
-const deleteRoute = (route) => {
+// Removing a route is destructive, so confirm via a themed dialog first.
+// The x button opens it; confirmDelete does the actual removal.
+const pendingDelete = ref(null);
+const requestDelete = (route) => {
+  pendingDelete.value = route;
+};
+const confirmDelete = () => {
+  const route = pendingDelete.value;
+  pendingDelete.value = null;
+  if (!route) return;
   removeRoute(route.id);
   message.value = `${route.oreType} removed`;
 };
@@ -131,7 +141,7 @@ const deleteRoute = (route) => {
                 <td>
                   <div class="rt-actions">
                     <button class="mini-action" type="button" @click="openEdit(route)">Edit</button>
-                    <button class="gt-del" type="button" aria-label="Remove route" @click="deleteRoute(route)">x</button>
+                    <button class="gt-del" type="button" aria-label="Remove route" @click="requestDelete(route)">x</button>
                   </div>
                 </td>
               </tr>
@@ -181,6 +191,17 @@ const deleteRoute = (route) => {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="pendingDelete !== null"
+      title="Remove route?"
+      :message="pendingDelete ? `Remove the ${pendingDelete.material} route &quot;${pendingDelete.oreType}&quot;?` : ''"
+      confirm-label="Remove"
+      cancel-label="Cancel"
+      danger
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
 
     <TweaksPanel>
       <TweakSection label="Theme" />

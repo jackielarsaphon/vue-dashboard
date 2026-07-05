@@ -4,6 +4,7 @@ import { useTweaks } from "../composables/useTweaks.js";
 import { useTruckModelsStore } from "../stores/truckModelsStore";
 import { useTruckFactors, DEFAULT_TONNES_PER_TRIP } from "../composables/useTruckFactors.js";
 import TopBar from "../components/common/TopBar.vue";
+import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -102,7 +103,16 @@ const commit = async () => {
   closeModal();
 };
 
-const removeRow = async (row) => {
+// Removing a model soft-deletes it, so confirm via a themed dialog first.
+// The x button opens it; confirmDelete does the actual removal.
+const pendingDelete = ref(null);
+const requestDelete = (row) => {
+  pendingDelete.value = row;
+};
+const confirmDelete = async () => {
+  const row = pendingDelete.value;
+  pendingDelete.value = null;
+  if (!row) return;
   await store.update(row.id, { active: false });
   message.value = `${row.code} removed from Dump model master`;
 };
@@ -145,7 +155,17 @@ const addWeek = async () => {
   newFactor.value = "";
 };
 
-const removeWeek = async (weekStart) => {
+// Removing a week's factor is destructive (that week falls back to the prior
+// week's value), so confirm via a themed dialog first. This dialog stacks above
+// the weekly-factor modal (ConfirmDialog z-index 80 > modal-overlay 60).
+const pendingWeekDelete = ref(null);
+const requestDeleteWeek = (weekStart) => {
+  pendingWeekDelete.value = weekStart;
+};
+const confirmDeleteWeek = async () => {
+  const weekStart = pendingWeekDelete.value;
+  pendingWeekDelete.value = null;
+  if (!weekStart) return;
   await setWeekFactor(factorCode.value, weekStart, "");
   factorMessage.value = `Removed week of ${fmtWeek(weekStart)}`;
 };
@@ -196,7 +216,7 @@ const removeWeek = async (weekStart) => {
             <div class="mining-actions">
               <button class="mini-action" type="button" @click="openFactors(row)">Weekly factors ▸</button>
               <button class="mini-action" type="button" @click="openEdit(row)">Edit</button>
-              <button class="gt-del" type="button" aria-label="Remove dump model" @click="removeRow(row)">x</button>
+              <button class="gt-del" type="button" aria-label="Remove dump model" @click="requestDelete(row)">x</button>
             </div>
           </div>
           <div v-if="rows.length === 0" class="mining-row">
@@ -279,7 +299,7 @@ const removeWeek = async (weekStart) => {
                 :value="rec.factor"
                 @change="saveWeek(rec.week_start, $event.target.value)"
               />
-              <button class="gt-del" type="button" aria-label="Remove week" @click="removeWeek(rec.week_start)">x</button>
+              <button class="gt-del" type="button" aria-label="Remove week" @click="requestDeleteWeek(rec.week_start)">x</button>
             </div>
             <div v-if="factorHistory.length === 0" class="factor-row">
               <span class="mining-company muted">No weekly factors yet — add one below.</span>
@@ -317,6 +337,28 @@ const removeWeek = async (weekStart) => {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="pendingDelete !== null"
+      title="Remove dump model?"
+      :message="pendingDelete ? `Remove &quot;${pendingDelete.code}&quot; from the Dump model master? It will no longer appear in the trip form dropdown.` : ''"
+      confirm-label="Remove"
+      cancel-label="Cancel"
+      danger
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
+
+    <ConfirmDialog
+      :open="pendingWeekDelete !== null"
+      title="Remove weekly factor?"
+      :message="pendingWeekDelete ? `Remove the factor for the week of ${fmtWeek(pendingWeekDelete)}? That week will fall back to the most recent earlier week.` : ''"
+      confirm-label="Remove"
+      cancel-label="Cancel"
+      danger
+      @confirm="confirmDeleteWeek"
+      @cancel="pendingWeekDelete = null"
+    />
 
     <TweaksPanel>
       <TweakSection label="Theme" />

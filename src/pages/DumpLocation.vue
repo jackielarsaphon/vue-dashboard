@@ -3,6 +3,7 @@ import { computed, ref, watchEffect } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useDumpingAreasStore } from "../stores/dumpingAreasStore";
 import TopBar from "../components/common/TopBar.vue";
+import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -90,8 +91,16 @@ const commit = async () => {
 };
 
 // Soft delete: production_entries.dumping_area_id has an ON DELETE RESTRICT FK,
-// so a hard delete fails once trips reference this location.
-const removeRow = async (row) => {
+// so a hard delete fails once trips reference this location. Confirm via a themed
+// dialog first — the x button opens it; confirmDelete does the actual removal.
+const pendingDelete = ref(null);
+const requestDelete = (row) => {
+  pendingDelete.value = row;
+};
+const confirmDelete = async () => {
+  const row = pendingDelete.value;
+  pendingDelete.value = null;
+  if (!row) return;
   await store.update(row.id, { active: false });
   message.value = `${row.code} removed from To location master`;
 };
@@ -136,7 +145,7 @@ const removeRow = async (row) => {
 
             <div class="mining-actions">
               <button class="mini-action" type="button" @click="openEdit(row)">Edit</button>
-              <button class="gt-del" type="button" aria-label="Remove location" @click="removeRow(row)">x</button>
+              <button class="gt-del" type="button" aria-label="Remove location" @click="requestDelete(row)">x</button>
             </div>
           </div>
           <div v-if="rows.length === 0" class="mining-row">
@@ -177,6 +186,17 @@ const removeRow = async (row) => {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="pendingDelete !== null"
+      title="Remove location?"
+      :message="pendingDelete ? `Remove &quot;${pendingDelete.code}&quot; from the To location master? It will no longer appear in the trip form dropdown.` : ''"
+      confirm-label="Remove"
+      cancel-label="Cancel"
+      danger
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
 
     <TweaksPanel>
       <TweakSection label="Theme" />
