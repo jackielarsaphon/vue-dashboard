@@ -55,7 +55,7 @@ const clockHour = computed(() => {
   const b = String((selection.hour + 1) % 24).padStart(2, "0");
   return `${a}:00-${b}:00`;
 });
-const { excavators, areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, placementTrucksFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
+const { areaExcavators, entries, totals, sumBucket, getBucket, placementNoteFor, placementTrucksFor, isPlacementRemovedNow, reload: reloadEntries } = useEntryStore();
 const { planMaterialTotalsForDate, getDatePlans, reloadPlans } = usePlanProduction();
 const { areaTarget, reload: reloadAreaTargets } = useAreaTargets();
 
@@ -122,10 +122,34 @@ const pickArea = (areaTrips, noteAreas) => {
   return noted[0] || "";
 };
 
+// Roster driving the Excavator detail table — built PURELY from what was entered on
+// Data entry (area_excavators placements), never from the Excavator master list. The
+// master is only the source for the Data entry dropdown; Fleet overview / Area
+// production must reflect entered production alone. So an excavator that was never
+// placed doesn't show here, and one deleted from the master still shows as long as it
+// has placements (they resolve their code via excavatorById, which includes inactive
+// units). Keyed by uid (a unit placed in several pits collapses to one detail row).
+const rosterExcavators = computed(() => {
+  const byUid = new Map();
+  areaExcavators.value.forEach((placement) => {
+    if (byUid.has(placement.uid)) return;
+    byUid.set(placement.uid, {
+      uid: placement.uid,
+      name: placement.name,
+      area: placement.area,
+      status: placement.status,
+      trucks: placement.trucks,
+      rl: placement.rl,
+      notes: placement.notes,
+    });
+  });
+  return [...byUid.values()];
+});
+
 // Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
 // and the "BCM by hour" chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
-  excavators.value.map((excavator) => {
+  rosterExcavators.value.map((excavator) => {
     let waste = 0;
     let ore = 0;
     // Build from REAL Data entry input for this hour. Trips come from the logged
@@ -355,13 +379,12 @@ const areaBars = computed(() => {
     <section class="kpi-strip fleet-kpi">
       <div class="kpi kpi-unified">
         <div class="kpi-cell kpi-cell-clock">
-          <span class="kpi-cell-k">Date &amp; Time</span>
           <span class="kpi-cell-date">{{ clockDate }}</span>
           <span class="kpi-cell-hour mono">{{ clockHour }}</span>
         </div>
         <div class="kpi-cell">
           <span class="kpi-cell-k">Trip this hr</span>
-          <span class="kpi-cell-v mono lg">{{ fleetStats.tripInHour }}</span>
+          <span class="kpi-cell-v mono">{{ fleetStats.tripInHour }}</span>
         </div>
         <template v-for="card in kpiCards" :key="card.label">
           <div class="kpi-cell">

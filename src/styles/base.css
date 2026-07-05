@@ -272,7 +272,7 @@ button, input, select { font: inherit; }
 }
 /* Unified KPI card: a flex row of cells (Date & Time, Trip this hr, Trips,
    Production, Target) divided by hairlines. */
-.kpi-unified { display: flex; align-items: stretch; padding: 14px 8px; }
+.kpi-unified { display: flex; align-items: stretch; padding: 8px 8px; }
 .kpi-unified .kpi-cell { flex: 1; }
 .kpi-unified .kpi-cell-clock { flex: 1.25; }
 .kpi-cell {
@@ -280,7 +280,7 @@ button, input, select { font: inherit; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   text-align: center;
   padding: 0 10px;
 }
@@ -293,14 +293,13 @@ button, input, select { font: inherit; }
   color: var(--ink-2);
 }
 .kpi-cell-v {
-  font-size: 26px;
-  font-weight: 700;
+  font-size: 34px;
+  font-weight: 800;
   color: var(--ink);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.kpi-cell-v.lg { font-size: 40px; font-weight: 800; }
 .kpi-cell-u { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
 /* Date & Time cell: date on top, hour range below in the alert red. */
 .kpi-cell-date { font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1.05; white-space: nowrap; }
