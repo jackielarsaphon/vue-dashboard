@@ -1,5 +1,5 @@
 <script setup>
-import { watchEffect, computed, ref, onMounted, onUnmounted } from "vue";
+import { watchEffect, computed } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useEntryStore } from "../composables/useEntryStore.js";
@@ -31,20 +31,19 @@ watchEffect(() => {
 const { selection } = useShiftSelection();
 
 // Date/Time ticket for the page (and its PNG export). The top-bar clock is now
-// excluded from the capture, so restate the report date and the live time here.
+// excluded from the capture, so restate the selected date and hour here — same
+// stacked format as the Fleet overview clock card ("6 Jul" / "17:00-18:00").
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const now = ref(new Date());
-let clockTimer = 0;
-onMounted(() => {
-  clockTimer = window.setInterval(() => { now.value = new Date(); }, 1000);
-});
-onUnmounted(() => window.clearInterval(clockTimer));
 const clockDate = computed(() => {
   const [y, m, d] = String(selection.date).split("-");
   const month = MONTHS[Number(m) - 1];
-  return d && month && y ? `${Number(d)} ${month} ${y}` : "";
+  return d && month && y ? `${Number(d)} ${month}` : "";
 });
-const clockTime = computed(() => now.value.toLocaleTimeString("en-GB"));
+const clockHour = computed(() => {
+  const a = String(selection.hour).padStart(2, "0");
+  const b = String((selection.hour + 1) % 24).padStart(2, "0");
+  return `${a}:00-${b}:00`;
+});
 
 const { reload: reloadEntries } = useEntryStore();
 const { reloadPlans } = usePlanProduction();
@@ -70,7 +69,7 @@ const { dashRef, downloading, downloadImage } = useDownloadImage(() => `area-pro
       <div class="kpi kpi-unified">
         <div class="kpi-cell kpi-cell-clock">
           <span class="kpi-cell-date">{{ clockDate }}</span>
-          <span class="kpi-cell-hour mono">{{ clockTime }}</span>
+          <span class="kpi-cell-hour mono">{{ clockHour }}</span>
         </div>
       </div>
     </section>
