@@ -160,7 +160,7 @@ const onHourChange = (event) => {
 </script>
 
 <template>
-  <header class="topbar">
+  <header class="topbar no-capture">
     <div class="brand">
       <div class="brand-mark">
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">

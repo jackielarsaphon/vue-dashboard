@@ -253,6 +253,10 @@ button, input, select { font: inherit; }
 /* Fleet overview: one unified KPI card spanning the strip. Override the base
    grid so the single card fills the full width. */
 .fleet-kpi { display: block; }
+.area-kpi { display: block; }
+/* Area production clock card hugs its date/time content instead of spanning the
+   full strip width. */
+.area-kpi .kpi { width: -moz-fit-content; width: fit-content; margin-inline: auto; }
 .kpi {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -489,6 +493,7 @@ table.data td.tag-cell > span {
   color: #fff;
 }
 table.data td.tag-cell > span.good { background: var(--ok); }
+table.data td.tag-cell > span.warn { background: var(--warn); color: #2b2200; }
 table.data td.tag-cell > span.danger { background: var(--alert); }
 table.data td.tag-cell > span.area {
   background: var(--accent);

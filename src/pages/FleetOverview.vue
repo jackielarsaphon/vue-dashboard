@@ -445,7 +445,7 @@ const areaBars = computed(() => {
                   <td class="exc">{{ row.exc }}</td>
                   <td class="mono">{{ row.trucks }}</td>
                   <td class="tag-cell"><span class="area mono">{{ row.area }}</span></td>
-                  <td class="tag-cell"><span class="mono" :class="row.trip <= 6 ? 'danger' : 'good'">{{ row.trip }}</span></td>
+                  <td class="tag-cell"><span class="mono" :class="row.trip < 8 ? 'danger' : row.trip <= 9 ? 'warn' : 'good'">{{ row.trip }}</span></td>
                   <td class="mono">{{ row.waste ? fmt(row.waste) : "–" }}</td>
                   <td class="mono">{{ row.ore ? fmt(row.ore) : "–" }}</td>
                   <td class="remark rmk">
