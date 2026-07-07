@@ -1120,12 +1120,17 @@ const placementTrucksFor = (placementId) => {
   return v == null ? "" : v;
 };
 
-// Set this hour's Trucks in fleet only — never touches any other hour. Blank / 0
-// removes this hour's value. Optimistic local cache first, then a best-effort
-// upsert; self-disables if the placement_trucks table isn't migrated yet.
+// Set this hour's Trucks in fleet only — never touches any other hour. Clearing
+// the field (blank) removes this hour's value so it falls back to carry-forward;
+// an explicit 0 is a REAL value (empty fleet) and is STORED — it shows 0 and stops
+// the carry-forward, instead of being swallowed as a clear (which made the field
+// snap back to the earlier hour's number, so 0 could never be entered). Optimistic
+// local cache first, then a best-effort upsert; self-disables if the
+// placement_trucks table isn't migrated yet.
 const setPlacementTrucks = async (placementId, value) => {
-  const raw = value === "" || value == null ? null : Number(value);
-  const trucks = raw != null && Number.isFinite(raw) && raw > 0 ? Math.round(raw) : null;
+  const isBlank = value === "" || value == null;
+  const raw = isBlank ? NaN : Number(value);
+  const trucks = isBlank || !Number.isFinite(raw) || raw < 0 ? null : Math.round(raw);
   const key = currentKey.value;
   const next = { ...trucksByKey.value };
   if (trucks == null) {
