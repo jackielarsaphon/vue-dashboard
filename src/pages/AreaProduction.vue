@@ -6,8 +6,10 @@ import { useEntryStore } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import { useDownloadImage } from "../composables/useDownloadImage.js";
+import { useExcelExport } from "../composables/useExcelExport.js";
 import TopBar from "../components/common/TopBar.vue";
 import DownloadImageButton from "../components/common/DownloadImageButton.vue";
+import ExcelExportButton from "../components/common/ExcelExportButton.vue";
 import ProductionReport from "../components/common/ProductionReport.vue";
 import ProductionShiftArea from "../components/common/ProductionShiftArea.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
@@ -55,13 +57,18 @@ useLiveRefresh([reloadEntries, reloadPlans]);
 // Download the whole Area production page as one PNG (shared logic).
 const { dashRef, downloading, downloadImage } = useDownloadImage(() => `area-production-${selection.date}.png`);
 
+// Export the same date's production as an Excel pivot (area × model × shift trips).
+const { exporting, exportExcel } = useExcelExport();
+
 </script>
 
 <template>
   <div ref="dashRef" class="dash">
     <TopBar subtitle="Daily" />
 
-    <DownloadImageButton :downloading="downloading" @click="downloadImage" />
+    <DownloadImageButton :downloading="downloading" @click="downloadImage">
+      <ExcelExportButton :busy="exporting" @click="exportExcel" />
+    </DownloadImageButton>
 
     <!-- Date / Shift / Time ticket — mirrors the Fleet overview clock card so the
          exported PNG keeps its date & time context. -->

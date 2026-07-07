@@ -10,6 +10,9 @@ defineEmits(["click"]);
 
 <template>
   <div class="dash-toolbar no-capture">
+    <!-- Extra toolbar actions (e.g. Export Excel) render to the left of the
+         image button, sharing this one right-aligned row. -->
+    <slot />
     <button class="dl-btn" type="button" :disabled="downloading" @click="$emit('click')">
       <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
         <path

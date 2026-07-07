@@ -107,7 +107,7 @@ button, input, select { font: inherit; }
   margin-inline: auto;
 }
 :root[data-density="regular"] .dash { gap: 14px; padding: 14px; }
-.dash-toolbar { display: flex; justify-content: flex-end; }
+.dash-toolbar { display: flex; justify-content: flex-end; gap: 8px; }
 .dl-btn {
   appearance: none;
   display: inline-flex;
@@ -129,6 +129,9 @@ button, input, select { font: inherit; }
 .dl-btn:hover { filter: brightness(0.94); }
 .dl-btn:active { filter: brightness(0.88); }
 .dl-btn:disabled { opacity: 0.6; cursor: default; filter: none; }
+/* Excel export button — Excel-green so it reads distinctly from the accent-
+   coloured "Download image" action it sits beside. */
+.dl-btn-secondary { background: #217346; color: #ffffff; }
 
 .topbar {
   display: flex;
