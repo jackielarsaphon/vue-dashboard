@@ -100,26 +100,20 @@ const placementsByExcavator = computed(() => {
 });
 
 // Pits the daily Plan Production recognises (production_plans pattern codes). The
-// Area cell only surfaces these, so an excavator that also hauled in an off-plan pit
-// doesn't show that pit as a second area chip next to its planned one — keeping Area
-// aligned with the plan instead of joining every pit it touched ("NLU03A, TKS01A").
+// Area cell only lists these, so an off-plan pit a unit also hauled in is dropped
+// from its (possibly multi-pit) Area label — keeping Area aligned with the plan.
 const planPits = computed(() => new Set(Object.keys(getDatePlans(selection.date))));
 
-// An excavator belongs to ONE pit. If the hour's data ties a unit to several pits
-// — a stale/duplicate placement, or a relabel that left rows under the old pit —
-// the Area cell must NOT list them all ("PVT03B, TKS02A"). Pick the single pit the
-// unit actually worked most this hour (most trips); fall back to a note-only pit
-// when it logged no trips. Always returns one code. Off-plan pits are dropped only
-// while a plan exists (mirrors planPits), so a no-plan day still resolves to a pit.
-const pickArea = (areaTrips, noteAreas) => {
+// The Excavator detail Area cell lists EVERY pit this unit touched this hour —
+// each pit it logged trips in, plus any pit where it only wrote a note — joined
+// by comma ("NLU03A, PVT03B, TKS02A"). Off-plan pits are dropped while a plan
+// exists (mirrors planPits); a no-plan day shows all so Area isn't blanked out.
+const joinAreas = (areaTrips, noteAreas) => {
   const recognised = (code) => planPits.value.size === 0 || planPits.value.has(code);
-  const withTrips = [...areaTrips.entries()].filter(([code]) => recognised(code));
-  if (withTrips.length) {
-    withTrips.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return withTrips[0][0];
-  }
-  const noted = [...noteAreas].filter(recognised).sort((a, b) => a.localeCompare(b));
-  return noted[0] || "";
+  return [...new Set([...areaTrips.keys(), ...noteAreas])]
+    .filter(recognised)
+    .sort((a, b) => a.localeCompare(b))
+    .join(", ");
 };
 
 // Roster driving the Excavator detail table — built PURELY from what was entered on
@@ -189,7 +183,7 @@ const excRows = computed(() =>
       // Trucks = the Trucks in fleet value entered on Data entry for this hour
       // (per-hour, summed across this unit's active placements).
       trucks: placements.reduce((sum, p) => sum + (Number(placementTrucksFor(p.placementId)) || 0), 0),
-      area: pickArea(areaTrips, noteAreas),
+      area: joinAreas(areaTrips, noteAreas),
       status,
       remark: note || STATUS_REMARK[status] || "Normal",
       trip,
