@@ -264,6 +264,32 @@ const slotStart = (date, shiftType, hour) => {
   base.setHours(hour, 0, 0, 0);
   return base;
 };
+
+// The operational day as an ordered list of (shift, hour) slots: Day 06→17 then
+// Night 18→05. Used to sum trips only up to the SELECTED time (below).
+const OPERATIONAL_SLOTS = [
+  ...DAY_HOURS.map((hour) => ({ shiftType: "Day", hour })),
+  ...NIGHT_HOURS.map((hour) => ({ shiftType: "Night", hour })),
+];
+
+// "Trips" KPI: a RUNNING total from the start of the operational day (Day 06) up
+// to AND INCLUDING the selected hour — not the whole date. So reviewing an earlier
+// hour shows the trips logged as at that time, and a Day-shift hour excludes the
+// Night shift that follows it. Falls back to the whole day if the selected hour
+// isn't part of the selected shift (an inconsistent selection), so it never blanks.
+const tripsToSelected = computed(() => {
+  const selectedIdx = OPERATIONAL_SLOTS.findIndex(
+    (slot) => slot.shiftType === selection.shiftType && slot.hour === selection.hour,
+  );
+  const lastIdx = selectedIdx === -1 ? OPERATIONAL_SLOTS.length - 1 : selectedIdx;
+  let trips = 0;
+  for (let i = 0; i <= lastIdx; i += 1) {
+    const { shiftType, hour } = OPERATIONAL_SLOTS[i];
+    const { soft, ore } = sumBucket(selection.date, shiftType, hour);
+    trips += soft + ore;
+  }
+  return trips;
+});
 const hourlySeries = computed(() => {
   const byHour = {};
   // Only hours still in the future (vs the real wall clock) stay empty. Gate on
@@ -383,7 +409,7 @@ const areaBars = computed(() => {
         <template v-for="card in kpiCards" :key="card.label">
           <div class="kpi-cell">
             <span class="kpi-cell-k">Trips</span>
-            <span class="kpi-cell-v mono">{{ fmt(card.k.trip) }}</span>
+            <span class="kpi-cell-v mono">{{ fmt(tripsToSelected) }}</span>
           </div>
           <div class="kpi-cell">
             <span class="kpi-cell-k">{{ card.material }}</span>
