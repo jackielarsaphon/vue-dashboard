@@ -41,12 +41,12 @@ const clockDate = computed(() => {
   const month = MONTHS[Number(m) - 1];
   return d && month && y ? `${Number(d)} ${month}` : "";
 });
-// Cumulative range from the shift start (06 Day / 18 Night) up to the selected
-// hour — matches the top-bar HOUR dropdown and the running-total metrics.
+// Cumulative range anchored at the operational-day start (06:00) up to the
+// selected hour — same as the Fleet overview card: 06:00-06:00 … 06:00-17:00
+// (Day) and 06:00-18:00, 06:00-19:00 … 06:00-05:00 (Night), no 18:00 reset.
 const clockHour = computed(() => {
-  const a = String(selection.shiftType === "Day" ? 6 : 18).padStart(2, "0");
   const b = String(selection.hour).padStart(2, "0");
-  return `${a}:00-${b}:00`;
+  return `06:00-${b}:00`;
 });
 
 const { reload: reloadEntries } = useEntryStore();
