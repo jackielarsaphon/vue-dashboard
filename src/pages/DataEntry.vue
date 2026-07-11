@@ -118,9 +118,11 @@ const dateLabel = computed(() => {
   const [y, m, d] = selection.date.split("-");
   return d && m && y ? `${Number(d)}/${Number(m)}/${y}` : selection.date;
 });
+// Cumulative range from the shift start (06 Day / 18 Night) up to the selected
+// hour — matches the top-bar HOUR dropdown and the running-total metrics.
 const hourLabel = computed(() => {
-  const a = String(selection.hour).padStart(2, "0");
-  const b = String((selection.hour + 1) % 24).padStart(2, "0");
+  const a = String(selection.shiftType === "Day" ? 6 : 18).padStart(2, "0");
+  const b = String(selection.hour).padStart(2, "0");
   return `${a}:00 - ${b}:00`;
 });
 const { isMobile } = useIsMobile();
