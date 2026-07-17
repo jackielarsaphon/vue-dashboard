@@ -202,7 +202,10 @@ const excRows = computed(() =>
 // Production note for the hour appear.
 const excHourRows = computed(() => excRows.value.filter((row) => row.trip > 0 || row.hasNote));
 
-const sortKey = ref("exc");
+// Default ordering groups rows by pit (Area) — units in the same bó cluster
+// together (NLU…, PVT…, TKS…) since the Area label starts with the pit code — and
+// within a pit falls back to excavator number.
+const sortKey = ref("area");
 const asc = ref(true);
 const area = ref("ALL");
 const areas = computed(() => ["ALL", ...Array.from(new Set(excHourRows.value.map((row) => row.area).filter(Boolean)))]);
@@ -212,8 +215,13 @@ const rows = computed(() => {
   filtered.sort((a, b) => {
     const av = a[sortKey.value];
     const bv = b[sortKey.value];
-    if (typeof av === "number") return asc.value ? av - bv : bv - av;
-    return asc.value ? String(av).localeCompare(bv) : String(bv).localeCompare(av);
+    let cmp;
+    if (typeof av === "number") cmp = asc.value ? av - bv : bv - av;
+    else cmp = asc.value ? String(av).localeCompare(bv) : String(bv).localeCompare(av);
+    // Keep a stable secondary order by excavator within an equal primary key so
+    // pit groups list their units in a consistent sequence.
+    if (cmp === 0 && sortKey.value !== "exc") cmp = String(a.exc).localeCompare(String(b.exc));
+    return cmp;
   });
   return filtered;
 });

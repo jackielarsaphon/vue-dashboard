@@ -41,11 +41,12 @@ const clockDate = computed(() => {
   const month = MONTHS[Number(m) - 1];
   return d && month && y ? `${Number(d)} ${month}` : "";
 });
-// Cumulative range anchored at the operational-day start (06:00) up to the
-// selected hour — same as the Fleet overview card: 06:00-06:00 … 06:00-17:00
-// (Day) and 06:00-18:00, 06:00-19:00 … 06:00-05:00 (Night), no 18:00 reset.
+// Cumulative range anchored at the operational-day start (06:00) up to the END of
+// the selected hour slot — the HOUR box's trailing time. So HOUR "12:00-13:00"
+// reads 06:00-13:00 (through the completed hour), giving 06:00-15:00 at end of Day,
+// 06:00-03:00 mid-Night, and 06:00-06:00 at the end of the operational day.
 const clockHour = computed(() => {
-  const b = String(selection.hour).padStart(2, "0");
+  const b = String((selection.hour + 1) % 24).padStart(2, "0");
   return `06:00-${b}:00`;
 });
 
