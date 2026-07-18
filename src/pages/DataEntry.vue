@@ -649,19 +649,39 @@ const defaultRouteFor = (placement) => {
 
 const tripSaveState = ref("idle"); // idle | saving | saved | error
 const tripSaveMessage = ref("");
+// Per-row debounce timers for the trip DB write. Keyed by row id.
+const tripSaveTimers = new Map();
 
-const setTrip = async (row, value) => {
+const setTrip = (row, value) => {
   if (!openExc.value) return;
+  // Reflect the keystroke into the row synchronously so the field always shows
+  // exactly what was typed. setRowTrips only writes row.trips AFTER several async
+  // DB round-trips, so keying "10" quickly used to let the earlier (value "1")
+  // save resolve last and snap the field back to 1 — a mid-typing clobber that
+  // read as the input "bouncing". Owning the display value here removes that race.
+  row.trips = value === "" ? 0 : Math.max(0, Number(value) || 0);
+
+  const placementId = openExc.value.placementId;
+  const rowId = row.id;
   tripSaveState.value = "saving";
   tripSaveMessage.value = "Saving to database…";
-  const ok = await setRowTrips(openExc.value.placementId, row.id, value);
-  if (ok) {
-    tripSaveState.value = "saved";
-    tripSaveMessage.value = "Saved to database.";
-  } else {
-    tripSaveState.value = "error";
-    tripSaveMessage.value = "Cannot save — check the date/hour isn't in the future, and that Material, Dumping area and Dump model master data exist.";
-  }
+  // Debounce the persist so only the final value is written once typing settles;
+  // this also stops stale in-flight saves from racing the field.
+  clearTimeout(tripSaveTimers.get(rowId));
+  tripSaveTimers.set(
+    rowId,
+    setTimeout(async () => {
+      tripSaveTimers.delete(rowId);
+      const ok = await setRowTrips(placementId, rowId, value);
+      if (ok) {
+        tripSaveState.value = "saved";
+        tripSaveMessage.value = "Saved to database.";
+      } else {
+        tripSaveState.value = "error";
+        tripSaveMessage.value = "Cannot save — check the date/hour isn't in the future, and that Material, Dumping area and Dump model master data exist.";
+      }
+    }, 350),
+  );
 };
 
 const addModalRow = () => {
