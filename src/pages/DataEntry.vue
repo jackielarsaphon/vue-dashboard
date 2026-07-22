@@ -23,7 +23,6 @@ const { areas: miningAreas } = useMiningAreas();
 const { routes: materialRoutes } = useMaterialRoutes();
 const { selection } = useShiftSelection();
 const {
-  areas: liveAreas,
   dumpingAreaCodes,
   excavators,
   areaExcavators,
@@ -79,8 +78,23 @@ const TRUCKS = computed(() => truckModels.value.map((row) => row.code));
 // planned in Step 2, plus any area that already has excavators (live) or that the
 // user jumped to via "+ Add area" without adding an excavator yet.
 const visitedAreas = ref(new Set());
+// Areas with at least one placement VISIBLE THIS HOUR — the same hour-scoped test
+// the area cards use to count "exc"/"trips". Using the store's all-time `liveAreas`
+// here instead would list areas whose only placements were keyed on another
+// date/hour/shift: they'd show as "0 exc 0 trips" tabs that don't match the pit
+// plan. Scoping to the current hour keeps the tab list and the card counts in sync.
+const liveAreasNow = computed(() =>
+  Array.from(
+    new Set(
+      areaExcavators.value
+        .filter((placement) => placementVisibleNow(placement.placementId))
+        .map((placement) => placement.area)
+        .filter(Boolean),
+    ),
+  ),
+);
 const areaTabs = computed(() =>
-  Array.from(new Set([...pits.value.map((pit) => pit.name), ...liveAreas.value, ...visitedAreas.value])).sort((a, b) => a.localeCompare(b)),
+  Array.from(new Set([...pits.value.map((pit) => pit.name), ...liveAreasNow.value, ...visitedAreas.value])).sort((a, b) => a.localeCompare(b)),
 );
 
 // Excavators that actually logged trips for the selected date (both shifts). The
@@ -147,6 +161,13 @@ const filteredPitOptions = computed(() => {
   if (!query) return options;
   return options.filter((option) => option.includes(query));
 });
+// Empty-state text for the pattern dropdown: distinguish "no data at all" from
+// "typed something with no match" from "every pattern is already added".
+const pitEmptyMessage = computed(() => {
+  if (miningDataOptions.value.length === 0) return "No Mining data available";
+  if (newPitName.value.trim()) return "No matches";
+  return "All patterns added";
+});
 
 const pitInput = ref(null);
 let pitCloseTimer = 0;
@@ -156,7 +177,17 @@ let pitCloseTimer = 0;
 // user can keep adding pits continuously without clicking back into the field.
 const commitPit = (rawName) => {
   const name = String(rawName ?? "").trim().toUpperCase();
-  if (!name || pits.value.some((pit) => pit.name === name)) return;
+  if (!name) return;
+  // Already added: don't silently swallow it — jump to that pit and clear the box
+  // so the field never sits there looking stuck.
+  if (pits.value.some((pit) => pit.name === name)) {
+    selectedPitName.value = name;
+    newPitName.value = "";
+    window.clearTimeout(pitCloseTimer);
+    pitDropdownOpen.value = true;
+    nextTick(() => pitInput.value?.focus());
+    return;
+  }
   pits.value.push({ name });
   pitAmounts.value[name] = { soil: "", ore: "", priority: "" };
   selectedPitName.value = name;
@@ -200,9 +231,27 @@ const formatCommaNumber = (value) => {
   return digits ? Number(digits).toLocaleString("en-US") : "";
 };
 
-const updatePitAmount = (type, value) => {
+const updatePitAmount = (type, event) => {
   if (!selectedPitName.value) return;
-  pitAmounts.value[selectedPitName.value][type] = formatCommaNumber(value);
+  const entry = pitAmounts.value[selectedPitName.value];
+  if (!entry) return;
+  const el = event.target;
+  // Count the digits left of the caret BEFORE we re-insert commas, so we can put
+  // the caret back after the same digit once the value is reformatted. Without this
+  // the controlled :value rewrite snaps the caret to the end on every keystroke.
+  const caret = el.selectionStart ?? el.value.length;
+  const digitsBeforeCaret = el.value.slice(0, caret).replace(/\D/g, "").length;
+  const formatted = formatCommaNumber(el.value);
+  entry[type] = formatted;
+  nextTick(() => {
+    let pos = 0;
+    let seen = 0;
+    while (pos < formatted.length && seen < digitsBeforeCaret) {
+      if (/\d/.test(formatted[pos])) seen += 1;
+      pos += 1;
+    }
+    if (el.selectionStart != null) el.setSelectionRange(pos, pos);
+  });
 };
 // Pits whose Priority the user actually edited this session (per date). A value
 // merely carried in from a prior day is shown as a default but must NOT be written
@@ -212,8 +261,10 @@ const priorityTouched = new Set();
 // Priority is a single 1–4 digit, not a tonnage — keep only 1–4 (blank clears it).
 const updatePitPriority = (value) => {
   if (!selectedPitName.value) return;
+  const entry = pitAmounts.value[selectedPitName.value];
+  if (!entry) return;
   const digit = String(value ?? "").replace(/\D/g, "").slice(0, 1);
-  pitAmounts.value[selectedPitName.value].priority = digit >= "1" && digit <= "4" ? digit : "";
+  entry.priority = digit >= "1" && digit <= "4" ? digit : "";
   priorityTouched.add(selectedPitName.value);
 };
 const parseCommaNumber = (value) => Number(String(value ?? "").replace(/,/g, "")) || 0;
@@ -805,7 +856,7 @@ onUnmounted(() => {
               {{ option }}
             </button>
             <span v-if="filteredPitOptions.length === 0" class="pit-combo-empty">
-              {{ miningDataOptions.length === 0 ? "No Mining data available" : "No matches" }}
+              {{ pitEmptyMessage }}
             </span>
           </div>
         </div>
@@ -836,7 +887,7 @@ onUnmounted(() => {
             inputmode="numeric"
             placeholder="0"
             :value="pitAmounts[selectedPitName]?.soil"
-            @input="updatePitAmount('soil', $event.target.value)"
+            @input="updatePitAmount('soil', $event)"
             @blur="persistSelectedPit"
           />
         </label>
@@ -848,7 +899,7 @@ onUnmounted(() => {
             inputmode="numeric"
             placeholder="0"
             :value="pitAmounts[selectedPitName]?.ore"
-            @input="updatePitAmount('ore', $event.target.value)"
+            @input="updatePitAmount('ore', $event)"
             @blur="persistSelectedPit"
           />
         </label>
