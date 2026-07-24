@@ -299,6 +299,27 @@ const tripsToSelected = computed(() => {
   }
   return trips;
 });
+// "Production" KPI: mirrors "Trips" but in TONNES — a RUNNING total from the start
+// of the operational day (Day 06) up to AND INCLUDING the selected hour, not the
+// whole date. So it now tracks the selected time exactly like Trip this hr / Trips
+// do, instead of showing the whole date's tonnage regardless of the hour picked.
+const productionToSelected = computed(() => {
+  const selectedIdx = OPERATIONAL_SLOTS.findIndex(
+    (slot) => slot.shiftType === selection.shiftType && slot.hour === selection.hour,
+  );
+  const lastIdx = selectedIdx === -1 ? OPERATIONAL_SLOTS.length - 1 : selectedIdx;
+  let tonnes = 0;
+  for (let i = 0; i <= lastIdx; i += 1) {
+    const { shiftType, hour } = OPERATIONAL_SLOTS[i];
+    const bucket = getBucket(selection.date, shiftType, hour);
+    Object.values(bucket).forEach((entry) => {
+      entry.rows.forEach((row) => {
+        tonnes += rowTonnes(row);
+      });
+    });
+  }
+  return tonnes;
+});
 const hourlySeries = computed(() => {
   const byHour = {};
   // Only hours still in the future (vs the real wall clock) stay empty. Gate on
@@ -422,7 +443,7 @@ const areaBars = computed(() => {
           </div>
           <div class="kpi-cell">
             <span class="kpi-cell-k">{{ card.material }}</span>
-            <span class="kpi-cell-v mono">{{ fmt(card.k.tonnes) }}<span class="kpi-cell-u">t</span></span>
+            <span class="kpi-cell-v mono">{{ fmt(productionToSelected) }}<span class="kpi-cell-u">t</span></span>
           </div>
           <div class="kpi-cell">
             <span class="kpi-cell-k">Target</span>
