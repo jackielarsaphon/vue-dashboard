@@ -8,7 +8,9 @@ import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useUsers } from "../composables/useUsers.js";
+import { useTripReportExport } from "../composables/useTripReportExport.js";
 import TopBar from "../components/common/TopBar.vue";
+import ExcelExportButton from "../components/common/ExcelExportButton.vue";
 import StatusDot from "../components/common/StatusDot.vue";
 import SearchSelect from "../components/common/SearchSelect.vue";
 import ConfirmDialog from "../components/common/ConfirmDialog.vue";
@@ -58,6 +60,10 @@ const slotKeyOf = (placement) => placement.placementId;
 // can show who keyed its trips for the current hour.
 const { users } = useUsers();
 const userNameById = computed(() => Object.fromEntries(users.value.map((u) => [u.id, u.name || u.username])));
+
+// Export the date's trips as a two-tab .xlsx (วิธีที่ 1 = Pit × Dump Area summary,
+// วิธีที่ 2 = hourly detail). Reads the same entry cache already on screen.
+const { exporting: exportingTrips, exportExcel: exportTripReport } = useTripReportExport();
 const nameOf = (id) => (id ? userNameById.value[id] || "" : "");
 // Who added (first keyed) and who last edited this row. Falls back to the trip
 // entry's created_by when placement_editors isn't available yet (pre-migration).
@@ -808,6 +814,10 @@ onUnmounted(() => {
 <template>
   <div class="entry-dash">
     <TopBar subtitle="Data entry" />
+
+    <div class="dash-toolbar no-capture entry-export-toolbar">
+      <ExcelExportButton :busy="exportingTrips" @click="exportTripReport" />
+    </div>
 
     <section v-if="!isMobile" class="entry-plan-top">
       <div class="entry-stepper entry-stepper-2" aria-label="Data entry steps">

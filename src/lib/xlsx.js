@@ -151,20 +151,38 @@ export const cellRef = (row, col) => {
   return `${letters}${row + 1}`;
 };
 
-const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+// One <Override> per worksheet, so a workbook can carry any number of sheets.
+const contentTypesXml = (sheetCount) => {
+  const sheetOverrides = Array.from({ length: sheetCount }, (_, i) =>
+    `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+  ).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheetOverrides}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+};
 
 const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
 
-const workbookXml = (sheetName) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEsc(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+const workbookXml = (sheetNames) => {
+  const sheets = sheetNames
+    .map((name, i) => `<sheet name="${xmlEsc(name).slice(0, 31)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets}</sheets></workbook>`;
+};
 
-// rId1 MUST be the worksheet — workbook.xml's <sheet r:id="rId1"> resolves the
-// sheet's content through this relationship. (Styles is rId2.) Getting this
-// backwards leaves Excel with a named-but-empty sheet: it opens blank.
-const WORKBOOK_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+// rId1..rIdN MUST be the worksheets — workbook.xml's <sheet r:id="…"> resolves
+// each sheet's content through these relationships. Styles takes the next id
+// after the last sheet. Getting this backwards leaves Excel with a named-but-
+// empty sheet: it opens blank.
+const workbookRelsXml = (sheetCount) => {
+  const sheetRels = Array.from({ length: sheetCount }, (_, i) =>
+    `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
+  ).join("");
+  const stylesRel = `<Relationship Id="rId${sheetCount + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheetRels}${stylesRel}</Relationships>`;
+};
 
 // The fixed style palette referenced by STYLE.* above.
 const stylesXml = () => {
@@ -282,14 +300,17 @@ export const validateWorkbookParts = (parts) => {
 };
 
 // Assemble the workbook parts into a store-only ZIP and return it as a Blob.
-export const buildXlsxBlob = (sheet) => {
+// Accepts a single `sheet` object or an array of them (one tab per sheet).
+export const buildXlsxBlob = (sheetOrSheets) => {
+  const sheets = Array.isArray(sheetOrSheets) ? sheetOrSheets : [sheetOrSheets];
+  const names = sheets.map((s, i) => s.name || `Sheet${i + 1}`);
   const parts = [
-    { name: "[Content_Types].xml", data: enc.encode(CONTENT_TYPES) },
+    { name: "[Content_Types].xml", data: enc.encode(contentTypesXml(sheets.length)) },
     { name: "_rels/.rels", data: enc.encode(ROOT_RELS) },
-    { name: "xl/workbook.xml", data: enc.encode(workbookXml(sheet.name || "Sheet1")) },
-    { name: "xl/_rels/workbook.xml.rels", data: enc.encode(WORKBOOK_RELS) },
+    { name: "xl/workbook.xml", data: enc.encode(workbookXml(names)) },
+    { name: "xl/_rels/workbook.xml.rels", data: enc.encode(workbookRelsXml(sheets.length)) },
     { name: "xl/styles.xml", data: enc.encode(stylesXml()) },
-    { name: "xl/worksheets/sheet1.xml", data: enc.encode(sheetXml(sheet)) },
+    ...sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc.encode(sheetXml(s)) })),
   ];
   validateWorkbookParts(parts); // fail loudly on a broken workbook, never ship a blank one
   return new Blob([zipStore(parts)], {
