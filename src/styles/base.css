@@ -255,10 +255,23 @@ button, input, select { font: inherit; }
 /* Fleet overview: one unified KPI card spanning the strip. Override the base
    grid so the single card fills the full width. */
 .fleet-kpi { display: block; }
-.area-kpi { display: block; }
+.area-kpi { display: block; position: relative; }
 /* Area production clock card hugs its date/time content instead of spanning the
    full strip width. */
 .area-kpi .kpi { width: -moz-fit-content; width: fit-content; margin-inline: auto; }
+/* Export-only company mark: hidden on screen (the top bar carries the logo
+   there), revealed on the html2canvas clone so the saved PNG shows it on the
+   clock row instead of needing a band above the page. Absolutely positioned, so
+   revealing it never moves the layout. */
+.export-logo {
+  display: none;
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 46px;
+  width: auto;
+}
 .kpi {
   background: var(--panel);
   border: 1px solid var(--line);

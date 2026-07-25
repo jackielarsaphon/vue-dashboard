@@ -9,6 +9,7 @@ import { useDownloadImage } from "../composables/useDownloadImage.js";
 import { useExcelExport } from "../composables/useExcelExport.js";
 import TopBar from "../components/common/TopBar.vue";
 import DownloadImageButton from "../components/common/DownloadImageButton.vue";
+import logoUrl from "../assets/thaidrill-logo.png";
 import ExcelExportButton from "../components/common/ExcelExportButton.vue";
 import ProductionReport from "../components/common/ProductionReport.vue";
 import ProductionShiftArea from "../components/common/ProductionShiftArea.vue";
@@ -74,8 +75,11 @@ const { exporting, exportExcel } = useExcelExport();
     </DownloadImageButton>
 
     <!-- Date / Shift / Time ticket — mirrors the Fleet overview clock card so the
-         exported PNG keeps its date & time context. -->
+         exported PNG keeps its date & time context. The clock card is centred, so
+         the empty left half of this row carries the company logo in the export
+         (hidden on screen, where the top bar already shows it). -->
     <section class="kpi-strip area-kpi">
+      <img class="export-logo" :src="logoUrl" alt="ThaiDrill" />
       <div class="kpi kpi-unified">
         <div class="kpi-cell kpi-cell-clock">
           <span class="kpi-cell-date">{{ clockDate }}</span>

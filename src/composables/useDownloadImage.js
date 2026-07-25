@@ -67,17 +67,30 @@ const loadLogo = () =>
     img.src = logoUrl;
   });
 
-// Stamp the company logo across the top of an exported capture, so every saved
-// PNG carries the ThaiDrill mark. Sizes are relative to the canvas width, which
-// means the band scales with the export resolution. Returns a new canvas, or the
-// original untouched if the logo couldn't load.
+// A page can host its own export-only logo (an .export-logo element, hidden on
+// screen and revealed on the clone) when its top row has empty space to fill.
+// That keeps the mark inside the layout instead of adding a band above it.
+const findInlineLogos = (root) => root.querySelectorAll(".export-logo");
+
+const revealInlineLogos = (clonedDoc) => {
+  findInlineLogos(clonedDoc).forEach((el) => {
+    el.style.display = "block";
+  });
+};
+
+// Stamp the company logo above the capture for pages with no room for it inline.
+// Sizes are relative to the canvas width, so the band scales with the export
+// resolution; the logo sits right on top of the content with only a thin gutter
+// above it. Returns a new canvas, or the original untouched if the logo couldn't
+// load.
 const withLogoBand = async (canvas, bg) => {
   const logo = await loadLogo();
   if (!logo || !logo.width || !logo.height) return canvas;
-  const pad = Math.round(canvas.width * 0.014);
+  const pad = Math.round(canvas.width * 0.008);
   const logoWidth = Math.round(canvas.width * 0.13);
   const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
-  const bandHeight = logoHeight + pad * 2;
+  // No padding under the logo — the captured page opens with its own gutter.
+  const bandHeight = logoHeight + pad;
   const out = document.createElement("canvas");
   out.width = canvas.width;
   out.height = canvas.height + bandHeight;
@@ -95,7 +108,8 @@ const withLogoBand = async (canvas, bg) => {
 // Capture a whole dashboard page as one PNG. html2canvas rasterises the live DOM
 // (so theme CSS variables, fonts and layout match the screen), skipping anything
 // marked .no-capture (the toolbar button) or the floating .twk-panel. The saved
-// PNG gets the ThaiDrill logo stamped in a band above the captured page.
+// PNG always carries the ThaiDrill logo: from the page's own .export-logo slot
+// when it has one, otherwise from a slim band stamped above the capture.
 //
 // Usage: const { dashRef, downloading, downloadImage } = useDownloadImage(() => `foo-${date}.png`);
 // Bind ref="dashRef" on the page's root .dash element. `fileName` may be a string
@@ -109,8 +123,13 @@ export function useDownloadImage(fileName) {
     if (!node || downloading.value) return;
     downloading.value = true;
     try {
-      // Make sure web fonts are ready so text doesn't fall back in the capture.
+      // Make sure web fonts are ready so text doesn't fall back in the capture,
+      // and the logo is in cache before html2canvas asks the clone for it.
       if (document.fonts?.ready) await document.fonts.ready;
+      await loadLogo();
+      // The inline slot sits beside centred content, so it only has room on a
+      // wide layout — on a phone fall back to the band above the capture.
+      const inlineLogo = node.scrollWidth >= 560 && findInlineLogos(node).length > 0;
       const rootStyles = getComputedStyle(document.documentElement);
       const bg = rootStyles.getPropertyValue("--bg").trim() || getComputedStyle(document.body).backgroundColor || "#ffffff";
       // Render at ~4K width for a crisp export: scale so the output is at least 3840px
@@ -124,9 +143,12 @@ export function useDownloadImage(fileName) {
         logging: false,
         windowWidth: node.scrollWidth,
         ignoreElements: (el) => el.classList?.contains("no-capture") || el.classList?.contains("twk-panel"),
-        onclone: (clonedDoc) => stripUnsupportedColorFns(clonedDoc),
+        onclone: (clonedDoc) => {
+          stripUnsupportedColorFns(clonedDoc);
+          if (inlineLogo) revealInlineLogos(clonedDoc);
+        },
       });
-      const branded = await withLogoBand(canvas, bg);
+      const branded = inlineLogo ? canvas : await withLogoBand(canvas, bg);
       const link = document.createElement("a");
       link.download = typeof fileName === "function" ? fileName() : fileName;
       link.href = branded.toDataURL("image/png");
