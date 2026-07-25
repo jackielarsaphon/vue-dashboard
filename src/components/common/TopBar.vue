@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuth } from "../../composables/useAuth.js";
 import { useShiftSelection } from "../../composables/useShiftSelection.js";
 import { useIsMobile } from "../../composables/useIsMobile.js";
+import logoUrl from "../../assets/thaidrill-logo.png";
 
 const { user, logout } = useAuth();
 const userInitial = computed(() => (user.value?.name || user.value?.username || "?").trim().charAt(0).toUpperCase());
@@ -162,12 +163,7 @@ const onHourChange = (event) => {
 <template>
   <header class="topbar no-capture">
     <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-          <path d="M3 18 L9 8 L13 14 L17 6 L21 18 Z" fill="currentColor" opacity=".9" />
-          <path d="M3 20 L21 20" stroke="currentColor" stroke-width="1.5" />
-        </svg>
-      </div>
+      <img class="brand-logo" :src="logoUrl" alt="ThaiDrill" />
       <div>
         <div class="brand-title">PRODUCTION CONTROL</div>
         <div class="brand-sub">Loading &amp; Hauling - {{ subtitle }}</div>

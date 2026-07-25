@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import html2canvas from "html2canvas";
+import logoUrl from "../assets/thaidrill-logo.png";
 
 // html2canvas' colour parser doesn't understand the CSS color() function, which
 // modern browsers emit when serialising color-mix(in srgb, …) — see area.css /
@@ -56,9 +57,45 @@ const stripUnsupportedColorFns = (clonedDoc) => {
   });
 };
 
+// The ThaiDrill logo, loaded once per export. Resolves to null if the asset is
+// missing so a failed load never blocks the download.
+const loadLogo = () =>
+  new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = logoUrl;
+  });
+
+// Stamp the company logo across the top of an exported capture, so every saved
+// PNG carries the ThaiDrill mark. Sizes are relative to the canvas width, which
+// means the band scales with the export resolution. Returns a new canvas, or the
+// original untouched if the logo couldn't load.
+const withLogoBand = async (canvas, bg) => {
+  const logo = await loadLogo();
+  if (!logo || !logo.width || !logo.height) return canvas;
+  const pad = Math.round(canvas.width * 0.014);
+  const logoWidth = Math.round(canvas.width * 0.13);
+  const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
+  const bandHeight = logoHeight + pad * 2;
+  const out = document.createElement("canvas");
+  out.width = canvas.width;
+  out.height = canvas.height + bandHeight;
+  const ctx = out.getContext("2d");
+  if (!ctx) return canvas;
+  // Paint the page background behind the band so the transparent logo sits on
+  // the same colour as the capture below it (light or dark theme).
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, out.width, bandHeight);
+  ctx.drawImage(logo, pad, pad, logoWidth, logoHeight);
+  ctx.drawImage(canvas, 0, bandHeight);
+  return out;
+};
+
 // Capture a whole dashboard page as one PNG. html2canvas rasterises the live DOM
 // (so theme CSS variables, fonts and layout match the screen), skipping anything
-// marked .no-capture (the toolbar button) or the floating .twk-panel.
+// marked .no-capture (the toolbar button) or the floating .twk-panel. The saved
+// PNG gets the ThaiDrill logo stamped in a band above the captured page.
 //
 // Usage: const { dashRef, downloading, downloadImage } = useDownloadImage(() => `foo-${date}.png`);
 // Bind ref="dashRef" on the page's root .dash element. `fileName` may be a string
@@ -89,9 +126,10 @@ export function useDownloadImage(fileName) {
         ignoreElements: (el) => el.classList?.contains("no-capture") || el.classList?.contains("twk-panel"),
         onclone: (clonedDoc) => stripUnsupportedColorFns(clonedDoc),
       });
+      const branded = await withLogoBand(canvas, bg);
       const link = document.createElement("a");
       link.download = typeof fileName === "function" ? fileName() : fileName;
-      link.href = canvas.toDataURL("image/png");
+      link.href = branded.toDataURL("image/png");
       link.click();
     } catch (err) {
       console.error("Download image failed", err);

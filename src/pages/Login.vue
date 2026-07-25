@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useAuth } from "../composables/useAuth.js";
+import logoUrl from "../assets/thaidrill-logo.png";
 
 const { login } = useAuth();
 const router = useRouter();
@@ -29,12 +30,7 @@ const submit = async () => {
   <div class="login-screen">
     <form class="login-card" @submit.prevent="submit">
       <div class="login-brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-            <path d="M3 18 L9 8 L13 14 L17 6 L21 18 Z" fill="currentColor" opacity=".9" />
-            <path d="M3 20 L21 20" stroke="currentColor" stroke-width="1.5" />
-          </svg>
-        </div>
+        <img class="login-logo" :src="logoUrl" alt="ThaiDrill" />
         <div>
           <div class="brand-title">PRODUCTION CONTROL</div>
           <div class="brand-sub">Loading &amp; Hauling - Sign in</div>

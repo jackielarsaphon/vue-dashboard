@@ -144,14 +144,13 @@ button, input, select { font: inherit; }
   border-radius: 8px;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  background: var(--accent);
-  color: #1a1206;
-  border-radius: 6px;
+/* Company mark. The source PNG is transparent, so the red reads on both themes. */
+.brand-logo {
+  height: 32px;
+  width: auto;
+  display: block;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
 }
 .brand-title { font-size: 14px; font-weight: 600; letter-spacing: 0.12em; }
 .brand-sub { font-size: 11px; color: var(--ink-2); letter-spacing: 0.06em; }
@@ -818,7 +817,8 @@ table.data.report-table td.prio-4 { background: var(--ok); }
   border-radius: 10px;
   padding: 28px 24px;
 }
-.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.login-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+.login-logo { height: 34px; width: auto; display: block; }
 .login-field { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--ink-2); letter-spacing: 0.06em; }
 .login-field input {
   background: var(--panel-2);
