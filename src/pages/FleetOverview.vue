@@ -7,6 +7,7 @@ import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../co
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import { useDownloadImage } from "../composables/useDownloadImage.js";
+import logoUrl from "../assets/thaidrill-logo.png";
 import TopBar from "../components/common/TopBar.vue";
 import DownloadImageButton from "../components/common/DownloadImageButton.vue";
 import StatusDot from "../components/common/StatusDot.vue";
@@ -425,9 +426,13 @@ const areaBars = computed(() => {
     <DownloadImageButton :downloading="downloading" @click="downloadImage" />
 
     <!-- One unified KPI card: Date & Time, Trip this hr, then Trips / Production /
-         Target, each a cell divided by a hairline. -->
+         Target, each a cell divided by a hairline. The card also carries the
+         company logo as its leading cell in the PNG export (hidden on screen,
+         where the top bar already shows it) — so the saved image needs no logo
+         band above the page. -->
     <section class="kpi-strip fleet-kpi">
       <div class="kpi kpi-unified">
+        <img class="export-logo export-logo-cell" :src="logoUrl" alt="ThaiDrill" />
         <div class="kpi-cell kpi-cell-clock">
           <span class="kpi-cell-date">{{ clockDate }}</span>
           <span class="kpi-cell-hour mono">{{ clockHour }}</span>

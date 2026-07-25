@@ -272,6 +272,22 @@ button, input, select { font: inherit; }
   height: 46px;
   width: auto;
 }
+/* Fleet overview variant: its KPI card has no empty space, so the mark rides IN
+   the flex row as the card's first cell (logo | date | Trip this hr | …) instead
+   of floating over it. In flow, hence no transform / absolute positioning. The
+   box stretches to the row height (so its hairline matches the dividers between
+   the other cells) while object-fit keeps the logo centred at its own ratio. */
+.export-logo-cell {
+  position: static;
+  transform: none;
+  align-self: stretch;
+  flex: 0 0 auto;
+  height: auto;
+  width: 158px;
+  object-fit: contain;
+  padding: 0 16px 0 6px;
+  border-right: 1px solid var(--line-soft);
+}
 .kpi {
   background: var(--panel);
   border: 1px solid var(--line);
