@@ -1,22 +1,20 @@
 import { ref } from "vue";
-import { useEntryStore, rowTotal } from "./useEntryStore.js";
+import { useEntryStore, rowTotal, isWaste } from "./useEntryStore.js";
 import { useShiftSelection } from "./useShiftSelection.js";
+import { useMaterialRoutes } from "./useMaterialRoutes.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
 import { downloadXlsx, cellRef, STYLE } from "../lib/xlsx.js";
 
-// Exports the selected date's Data-entry trips as a two-tab .xlsx, matching the
-// two report shapes the site wants:
-//
-//   วิธีที่ 1 — trips summed by Pit × Dump Area, split across truck-model columns,
-//               with a Grand Total column per row and a Grand Total footer.
-//   วิธีที่ 2 — one row per Time (hour) × Pit × Dump Area × From (excavator),
-//               trips split across the same model columns + Grand Total.
+// Exports the selected date's Data-entry trips as a single-tab .xlsx ("Hourly Trip
+// Report"): one row per Time (hour) × Pit × Dump Area × From (excavator) ×
+// Material type × Ore type, trips split across truck-model columns with a Grand
+// Total column per row and a Grand Total footer.
 //
 // Reads the shared entry cache (useEntryStore) that the pages already populate,
 // so it exports exactly the trips on screen — no extra fetch.
 
-// Operational-day hour order: Day 06→17 then Night 18→05. Used so วิธีที่ 2 rows
-// list chronologically across the shift boundary instead of plain 00→23.
+// Operational-day hour order: Day 06→17 then Night 18→05. Used so the rows list
+// chronologically across the shift boundary instead of plain 00→23.
 const DAY_HOURS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 const NIGHT_HOURS = [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5];
 
@@ -32,11 +30,23 @@ const numCell = (v, style) => (v > 0 ? { v, t: "n", s: style } : { v: "", s: sty
 export function useTripReportExport() {
   const { getBucket, truckModels } = useEntryStore();
   const { selection } = useShiftSelection();
+  const { routes: materialRoutes } = useMaterialRoutes();
   const excavatorsStore = useExcavatorsStore();
   const exporting = ref(false);
 
+  // An entry row stores the ORE TYPE code in `row.material` (the Data entry form's
+  // "Ore type"); its "Material type" (Ore / Waste) comes from the material_routes
+  // pairing, falling back to the waste flag on the materials master — same rule the
+  // Data entry grid uses. Blank ore type exports blank rather than guessing "Ore".
+  const materialTypeOf = (oreType) => {
+    if (!oreType) return "";
+    const route = materialRoutes.value.find((item) => item.oreType === oreType);
+    if (route) return route.material;
+    return isWaste(oreType) ? "Waste" : "Ore";
+  };
+
   // Flatten every trip logged on the date into { shiftType, hour, pit, dump,
-  // from, model, trips } records — the common source for both tabs.
+  // from, materialType, oreType, model, trips } records.
   const gather = () => {
     const date = selection.date;
     const excCode = {};
@@ -52,7 +62,18 @@ export function useTripReportExport() {
           entry.rows.forEach((row) => {
             const trips = rowTotal(row);
             if (!trips) return;
-            records.push({ shiftType, hour, pit, dump: row.dump || "", from, model: row.model || "", trips });
+            const oreType = row.material || "";
+            records.push({
+              shiftType,
+              hour,
+              pit,
+              dump: row.dump || "",
+              from,
+              materialType: materialTypeOf(oreType),
+              oreType,
+              model: row.model || "",
+              trips,
+            });
           });
         });
       }
@@ -93,78 +114,22 @@ export function useTripReportExport() {
     return { h1, h2, blank };
   };
 
-  // วิธีที่ 1 — Pit × Dump Area, trips per model + Grand Total.
-  const buildBySummary = (records, models) => {
-    const stubs = ["Pit", "Dump Area"];
-    const M = models.length;
-    const width = stubs.length + M + 1;
-    const colGrand = stubs.length + M;
-    const rows = [];
-    const merges = [];
-    const { h1, h2, blank } = buildHeader(rows, merges, width, `วิธีที่ 1 — Sum เที่ยวแยกตาม Pit และ Dump Area (แยกตาม Type รถ) — ${selection.date}`, stubs);
-    models.forEach((m, i) => {
-      h2[stubs.length + i] = { v: m, s: STYLE.HEADER };
-    });
-    h2[colGrand] = { v: "Grand Total", s: STYLE.HEADER };
-    rows.push(h1, h2);
-
-    const agg = new Map();
-    records.forEach((r) => {
-      const key = `${r.pit}|||${r.dump}`;
-      let a = agg.get(key);
-      if (!a) {
-        a = { pit: r.pit, dump: r.dump, per: {}, total: 0 };
-        agg.set(key, a);
-      }
-      a.per[r.model] = (a.per[r.model] || 0) + r.trips;
-      a.total += r.trips;
-    });
-    const list = [...agg.values()].sort((a, b) => a.pit.localeCompare(b.pit) || a.dump.localeCompare(b.dump));
-
-    const modelTotals = {};
-    let grand = 0;
-    list.forEach((a) => {
-      const row = blank();
-      row[0] = { v: a.pit, s: STYLE.LABEL };
-      row[1] = { v: a.dump, s: STYLE.LABEL };
-      models.forEach((m, i) => {
-        const v = a.per[m] || 0;
-        row[stubs.length + i] = numCell(v, STYLE.NUM);
-        modelTotals[m] = (modelTotals[m] || 0) + v;
-      });
-      row[colGrand] = numCell(a.total, STYLE.TOTAL_NUM);
-      grand += a.total;
-      rows.push(row);
-    });
-
-    const gr = blank();
-    gr[0] = { v: "Grand Total", s: STYLE.TOTAL_LABEL };
-    merges.push(`${cellRef(rows.length, 0)}:${cellRef(rows.length, 1)}`);
-    gr[1] = { v: "", s: STYLE.TOTAL_LABEL };
-    models.forEach((m, i) => {
-      gr[stubs.length + i] = numCell(modelTotals[m] || 0, STYLE.TOTAL_NUM);
-    });
-    gr[colGrand] = numCell(grand, STYLE.TOTAL_NUM);
-    rows.push(gr);
-
-    const cols = Array.from({ length: width }, (_, i) => {
-      if (i === 0) return { width: 11 };
-      if (i === 1) return { width: 24 };
-      if (i === colGrand) return { width: 12 };
-      return { width: 11 };
-    });
-    return { name: "วิธีที่ 1", cols, rows, merges, freeze: { xSplit: 2, ySplit: 3 } };
-  };
-
-  // วิธีที่ 2 — one row per Time × Pit × Dump Area × From, trips per model + total.
+  // The report sheet — one row per Time × Pit × Dump Area × From × Material type ×
+  // Ore type, trips per model + Grand Total.
   const buildDetail = (records, models) => {
-    const stubs = ["Time", "Pit", "Dump Area", "From"];
+    const stubs = ["Time", "Pit", "Dump Area", "From", "Material type", "Ore type"];
     const M = models.length;
     const width = stubs.length + M + 1;
     const colGrand = stubs.length + M;
     const rows = [];
     const merges = [];
-    const { h1, h2, blank } = buildHeader(rows, merges, width, `วิธีที่ 2 — เที่ยวรายชั่วโมง แยกตาม Pit / Dump Area / From (Excavator) — ${selection.date}`, stubs);
+    const { h1, h2, blank } = buildHeader(
+      rows,
+      merges,
+      width,
+      `รายงานเที่ยวรายชั่วโมง — แยกตาม Pit / Dump Area / From (Excavator) / Material — ${selection.date}`,
+      stubs,
+    );
     models.forEach((m, i) => {
       h2[stubs.length + i] = { v: m, s: STYLE.HEADER };
     });
@@ -173,10 +138,20 @@ export function useTripReportExport() {
 
     const agg = new Map();
     records.forEach((r) => {
-      const key = `${r.shiftType}|${r.hour}|${r.pit}|${r.dump}|${r.from}`;
+      const key = `${r.shiftType}|${r.hour}|${r.pit}|${r.dump}|${r.from}|${r.materialType}|${r.oreType}`;
       let a = agg.get(key);
       if (!a) {
-        a = { shiftType: r.shiftType, hour: r.hour, pit: r.pit, dump: r.dump, from: r.from, per: {}, total: 0 };
+        a = {
+          shiftType: r.shiftType,
+          hour: r.hour,
+          pit: r.pit,
+          dump: r.dump,
+          from: r.from,
+          materialType: r.materialType,
+          oreType: r.oreType,
+          per: {},
+          total: 0,
+        };
         agg.set(key, a);
       }
       a.per[r.model] = (a.per[r.model] || 0) + r.trips;
@@ -187,7 +162,9 @@ export function useTripReportExport() {
         orderIndex(a.shiftType, a.hour) - orderIndex(b.shiftType, b.hour) ||
         a.pit.localeCompare(b.pit) ||
         a.dump.localeCompare(b.dump) ||
-        a.from.localeCompare(b.from),
+        a.from.localeCompare(b.from) ||
+        a.materialType.localeCompare(b.materialType) ||
+        a.oreType.localeCompare(b.oreType),
     );
 
     const modelTotals = {};
@@ -198,6 +175,8 @@ export function useTripReportExport() {
       row[1] = { v: a.pit, s: STYLE.LABEL };
       row[2] = { v: a.dump, s: STYLE.LABEL };
       row[3] = { v: a.from, s: STYLE.LABEL };
+      row[4] = { v: a.materialType, s: STYLE.LABEL };
+      row[5] = { v: a.oreType, s: STYLE.LABEL };
       models.forEach((m, i) => {
         const v = a.per[m] || 0;
         row[stubs.length + i] = numCell(v, STYLE.NUM);
@@ -210,10 +189,8 @@ export function useTripReportExport() {
 
     const gr = blank();
     gr[0] = { v: "Grand Total", s: STYLE.TOTAL_LABEL };
-    merges.push(`${cellRef(rows.length, 0)}:${cellRef(rows.length, 3)}`);
-    [1, 2, 3].forEach((c) => {
-      gr[c] = { v: "", s: STYLE.TOTAL_LABEL };
-    });
+    merges.push(`${cellRef(rows.length, 0)}:${cellRef(rows.length, stubs.length - 1)}`);
+    for (let c = 1; c < stubs.length; c += 1) gr[c] = { v: "", s: STYLE.TOTAL_LABEL };
     models.forEach((m, i) => {
       gr[stubs.length + i] = numCell(modelTotals[m] || 0, STYLE.TOTAL_NUM);
     });
@@ -225,10 +202,12 @@ export function useTripReportExport() {
       if (i === 1) return { width: 10 };
       if (i === 2) return { width: 24 };
       if (i === 3) return { width: 10 };
+      if (i === 4) return { width: 14 };
+      if (i === 5) return { width: 12 };
       if (i === colGrand) return { width: 12 };
       return { width: 11 };
     });
-    return { name: "วิธีที่ 2", cols, rows, merges, freeze: { xSplit: 4, ySplit: 3 } };
+    return { name: "Hourly Trip Report", cols, rows, merges, freeze: { xSplit: stubs.length, ySplit: 3 } };
   };
 
   const exportExcel = () => {
@@ -237,7 +216,7 @@ export function useTripReportExport() {
     try {
       const records = gather();
       const models = modelColumns(records);
-      downloadXlsx(`trip-report-${selection.date}.xlsx`, [buildBySummary(records, models), buildDetail(records, models)]);
+      downloadXlsx(`trip-report-${selection.date}.xlsx`, buildDetail(records, models));
     } catch (err) {
       console.error("Trip report export failed", err);
     } finally {
