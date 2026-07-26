@@ -1,6 +1,7 @@
 // Minimal in-memory stand-in for the supabase-js client, implementing only the
 // PostgREST query-builder surface this app uses:
-//   from(table).select(cols).eq/in/match(...).order(...).single()/maybeSingle()
+//   from(table).select(cols).eq/in/match/gte/lte/lt/is(...).order(...).range(a, b)
+//                                                          .single()/maybeSingle()
 //   from(table).insert(payload).select().single()
 //   from(table).update(payload).eq(...).select().single()
 //   from(table).delete().eq(...)/.match(...)
@@ -30,6 +31,13 @@ const matchesFilters = (row, filters) =>
     if (f.type === "eq") return row[f.col] === f.val;
     if (f.type === "in") return f.vals.includes(row[f.col]);
     if (f.type === "match") return Object.entries(f.obj).every(([k, v]) => row[k] === v);
+    // Range filters compare with plain JS operators, which is enough for the
+    // ISO date strings / numbers this app filters on (e.g. shifts.shift_date).
+    if (f.type === "gte") return row[f.col] >= f.val;
+    if (f.type === "lte") return row[f.col] <= f.val;
+    if (f.type === "lt") return row[f.col] < f.val;
+    // .is(col, null) — the only `is` form the app uses (global dumping areas).
+    if (f.type === "is") return (row[f.col] ?? null) === f.val;
     return true;
   });
 
@@ -41,6 +49,7 @@ class QueryBuilder {
     this._payload = null;
     this._filters = [];
     this._order = null;
+    this._range = null;
     this._single = false;
     this._returning = false;
     this._onConflict = null;
@@ -86,8 +95,32 @@ class QueryBuilder {
     this._filters.push({ type: "match", obj });
     return this;
   }
+  gte(col, val) {
+    this._filters.push({ type: "gte", col, val });
+    return this;
+  }
+  lte(col, val) {
+    this._filters.push({ type: "lte", col, val });
+    return this;
+  }
+  lt(col, val) {
+    this._filters.push({ type: "lt", col, val });
+    return this;
+  }
+  is(col, val) {
+    this._filters.push({ type: "is", col, val });
+    return this;
+  }
+  // The real client keeps every .order() call (first is primary); the mock only
+  // needs the last one to break ties deterministically, so it overwrites.
   order(col, opts = {}) {
     this._order = { col, ascending: opts.ascending !== false };
+    return this;
+  }
+  // Inclusive row window, like PostgREST's Range header — used to page past the
+  // API's 1000-row response cap (see useBackupExport.js).
+  range(from, to) {
+    this._range = { from, to };
     return this;
   }
 
@@ -127,6 +160,7 @@ class QueryBuilder {
           return 0;
         });
       }
+      if (this._range) out = out.slice(this._range.from, this._range.to + 1);
       return this._result(out);
     }
 

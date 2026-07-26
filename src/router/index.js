@@ -28,6 +28,7 @@ const router = createRouter({
     { path: "/excavator", redirect: "/settings?tab=excavator" },
     { path: "/dumpmodel", redirect: "/settings?tab=dumpmodel" },
     { path: "/location", redirect: "/settings?tab=location" },
+    { path: "/backup", redirect: "/settings?tab=backup" },
     { path: "/users", redirect: "/manager" },
     { path: "/:pathMatch(.*)*", redirect: "/fleet" },
   ],
