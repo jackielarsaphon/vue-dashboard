@@ -2,6 +2,7 @@ import { ref } from "vue";
 import { useEntryStore, rowTotal, isWaste } from "./useEntryStore.js";
 import { useShiftSelection } from "./useShiftSelection.js";
 import { useMaterialRoutes } from "./useMaterialRoutes.js";
+import { factorFor } from "./useTruckFactors.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
 import { downloadXlsx } from "../lib/xlsx.js";
 import { buildTripSheet, materialTypeFor, modelColumns } from "../lib/tripReportSheet.js";
@@ -17,14 +18,16 @@ import { buildTripSheet, materialTypeFor, modelColumns } from "../lib/tripReport
 // the same sheet once per day over a date range).
 
 export function useTripReportExport() {
-  const { getBucket, truckModels } = useEntryStore();
+  const { getBucket, truckModels, placementRlAt, placementNoteAt } = useEntryStore();
   const { selection } = useShiftSelection();
   const { routes: materialRoutes } = useMaterialRoutes();
   const excavatorsStore = useExcavatorsStore();
   const exporting = ref(false);
 
-  // Flatten every trip logged on the date into { shiftType, hour, pit, dump,
-  // from, materialType, oreType, model, trips } records.
+  // Flatten every trip logged on the date into the record shape buildTripSheet
+  // expects. RL / Remark come from the placement's values for that hour (same rules
+  // the grid displays), Dig block travels on the trip row, and the factor is the
+  // truck model's tonnes/trip for the exported date's week.
   const gather = () => {
     const date = selection.date;
     const excCode = {};
@@ -34,9 +37,14 @@ export function useTripReportExport() {
     const records = [];
     ["Day", "Night"].forEach((shiftType) => {
       for (let hour = 0; hour < 24; hour += 1) {
-        Object.values(getBucket(date, shiftType, hour)).forEach((entry) => {
+        Object.entries(getBucket(date, shiftType, hour)).forEach(([slot, entry]) => {
           const pit = entry.area || "";
           const from = excCode[entry.excavatorId] || "";
+          // Legacy rows (logged before placements existed) have no placement_id; the
+          // slot key stands in so they still group as their own row.
+          const placementId = entry.placementId || slot;
+          const rl = entry.placementId ? placementRlAt(entry.placementId, date, shiftType, hour) : "";
+          const remark = entry.placementId ? placementNoteAt(entry.placementId, date, shiftType, hour) : "";
           entry.rows.forEach((row) => {
             const trips = rowTotal(row);
             if (!trips) return;
@@ -44,13 +52,18 @@ export function useTripReportExport() {
             records.push({
               shiftType,
               hour,
+              placementId,
               pit,
               dump: row.dump || "",
               from,
+              digBlock: row.digBlock || "",
+              rl,
               materialType: materialTypeFor(oreType, materialRoutes.value, isWaste),
               oreType,
               model: row.model || "",
               trips,
+              factor: factorFor(row.model, date),
+              remark,
             });
           });
         });

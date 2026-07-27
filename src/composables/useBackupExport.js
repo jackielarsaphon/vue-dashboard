@@ -1,14 +1,22 @@
 import { ref } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
-import { useEntryStore, isWaste } from "./useEntryStore.js";
+import { useEntryStore, isWaste, isMissingTableError } from "./useEntryStore.js";
 import { useMaterialRoutes } from "./useMaterialRoutes.js";
+import { useTruckFactors, factorFor } from "./useTruckFactors.js";
 import { useExcavatorsStore } from "../stores/excavatorsStore";
 import { useMiningAreasStore } from "../stores/miningAreasStore";
 import { useMaterialsStore } from "../stores/materialsStore";
 import { useDumpingAreasStore } from "../stores/dumpingAreasStore";
 import { useTruckModelsStore } from "../stores/truckModelsStore";
 import { downloadXlsx } from "../lib/xlsx.js";
-import { buildDailySummarySheet, buildTripSheet, materialTypeFor, modelColumns } from "../lib/tripReportSheet.js";
+import {
+  DAY_HOURS,
+  NIGHT_HOURS,
+  buildDailySummarySheet,
+  buildTripSheet,
+  materialTypeFor,
+  modelColumns,
+} from "../lib/tripReportSheet.js";
 
 // Backup data (Settings ▸ Backup data): exports a DATE RANGE of Data-entry trips as
 // one .xlsx with ONE SHEET PER DAY — each day's sheet is exactly the sheet Data entry's
@@ -48,11 +56,14 @@ const codeById = (items) => Object.fromEntries(items.map((row) => [row.id, row.c
 // order. Advances by the rows actually returned and only stops on an EMPTY page:
 // a project whose max-rows is set BELOW PAGE would otherwise look "done" on its
 // first (short) page and quietly drop the rest of the range.
-const fetchPaged = async (makeQuery) => {
+const fetchPaged = async (makeQuery, { optional = false } = {}) => {
   const out = [];
   for (;;) {
     // Next page starts where the rows collected so far end.
     const { data, error: queryError } = await makeQuery(out.length, PAGE);
+    // `optional` tables (the per-hour side tables) may not be migrated yet on a
+    // given project — they simply contribute nothing rather than failing the export.
+    if (queryError && optional && isMissingTableError(queryError)) return [];
     if (queryError) throw new Error(queryError.message);
     const rows = data || [];
     if (rows.length === 0) return out;
@@ -64,6 +75,7 @@ const fetchPaged = async (makeQuery) => {
 export function useBackupExport() {
   const { truckModels } = useEntryStore();
   const { routes: materialRoutes, reload: reloadRoutes } = useMaterialRoutes();
+  const { reload: reloadFactors } = useTruckFactors();
   const excavatorsStore = useExcavatorsStore();
   const miningAreasStore = useMiningAreasStore();
   const materialsStore = useMaterialsStore();
@@ -80,6 +92,9 @@ export function useBackupExport() {
       dumpingAreasStore.load(),
       truckModelsStore.load(),
       reloadRoutes(),
+      // Truck Factor column: the weekly tonnes/trip history, so each date gets the
+      // factor that was in effect for its own week.
+      reloadFactors(),
     ]);
 
     // production_entries carries no date of its own — it hangs off shifts — so resolve
@@ -96,21 +111,71 @@ export function useBackupExport() {
     );
     const shiftById = Object.fromEntries(shiftRows.map((row) => [row.id, row]));
     const shiftIds = shiftRows.map((row) => row.id);
+    const shiftIdByDateType = Object.fromEntries(shiftRows.map((row) => [`${row.shift_date}|${row.shift_type}`, row.id]));
 
-    // Read the entries in chunks of shift ids, so each ?in=(…) URL stays short.
+    // Read the entries — and the per-hour side tables the report columns need — in
+    // chunks of shift ids, so each ?in=(…) URL stays short.
     const entryRows = [];
+    const rlRows = [];
+    const noteRows = [];
+    const digRows = [];
+    const removedRows = [];
     for (let i = 0; i < shiftIds.length; i += SHIFT_CHUNK) {
       const chunk = shiftIds.slice(i, i + SHIFT_CHUNK);
-      const rows = await fetchPaged((offset, limit) =>
-        supabase
-          .from("production_entries")
-          .select("shift_id, log_hour, trips, excavator_id, mining_area_id, material_id, dumping_area_id, truck_model_id")
-          .in("shift_id", chunk)
-          .order("id", { ascending: true })
-          .range(offset, offset + limit - 1),
-      );
-      entryRows.push(...rows);
+      const paged = (table, columns, opts) =>
+        fetchPaged(
+          (offset, limit) =>
+            supabase
+              .from(table)
+              .select(columns)
+              .in("shift_id", chunk)
+              .order("id", { ascending: true })
+              .range(offset, offset + limit - 1),
+          opts,
+        );
+      const [entries, rl, notes, dig, removed] = await Promise.all([
+        paged("production_entries", "shift_id, log_hour, trips, placement_id, excavator_id, mining_area_id, material_id, dumping_area_id, truck_model_id"),
+        paged("placement_rl", "shift_id, log_hour, placement_id, rl_meters", { optional: true }),
+        paged("placement_notes", "shift_id, log_hour, placement_id, note", { optional: true }),
+        paged("entry_dig_blocks", "shift_id, log_hour, placement_id, material_id, dumping_area_id, truck_model_id, dig_block", { optional: true }),
+        // Needed for the RL carry rule below: a per-hour removal stops the carry.
+        paged("placement_removed", "shift_id, log_hour, placement_id", { optional: true }),
+      ]);
+      entryRows.push(...entries);
+      rlRows.push(...rl);
+      noteRows.push(...notes);
+      digRows.push(...dig);
+      removedRows.push(...removed);
     }
+
+    const slotKey = (shiftId, hour, placementId) => `${shiftId}|${hour}|${placementId}`;
+    const rlMap = new Map(rlRows.map((row) => [slotKey(row.shift_id, row.log_hour, row.placement_id), row.rl_meters]));
+    const noteMap = new Map(noteRows.map((row) => [slotKey(row.shift_id, row.log_hour, row.placement_id), row.note || ""]));
+    const removedSet = new Set(removedRows.map((row) => slotKey(row.shift_id, row.log_hour, row.placement_id)));
+    const digMap = new Map(
+      digRows.map((row) => [
+        `${slotKey(row.shift_id, row.log_hour, row.placement_id)}|${row.material_id}|${row.dumping_area_id}|${row.truck_model_id}`,
+        row.dig_block || "",
+      ]),
+    );
+
+    // RL as the grid shows it: this hour's own value, else the most recent earlier
+    // hour's WITHIN THE SAME SHIFT, stopped by a per-hour removal. Mirrors
+    // useEntryStore's carriedValueAt so both exports agree.
+    const rlAt = (date, shiftType, hour, placementId) => {
+      if (!placementId) return "";
+      const order = shiftType === "Day" ? DAY_HOURS : NIGHT_HOURS;
+      const idx = order.indexOf(hour);
+      const shiftId = shiftIdByDateType[`${date}|${shiftType}`];
+      if (idx < 0 || !shiftId) return "";
+      for (let i = idx; i >= 0; i -= 1) {
+        const key = slotKey(shiftId, order[i], placementId);
+        if (i < idx && removedSet.has(key)) return "";
+        const v = rlMap.get(key);
+        if (v !== undefined && v !== null) return v;
+      }
+      return "";
+    };
 
     const excCode = codeById(excavatorsStore.items.value);
     const areaCode = codeById(miningAreasStore.items.value);
@@ -126,16 +191,27 @@ export function useBackupExport() {
       if (!trips) return;
       const oreType = materialCode[row.material_id] || "";
       const model = modelCode[row.truck_model_id] || "";
+      // Legacy rows predate placements and have no placement_id; they keep an
+      // excavator+pit stand-in key so they still group as their own report row.
+      const placementId = row.placement_id || `leg_${row.excavator_id}__${row.mining_area_id}`;
       const record = {
         shiftType: shift.shift_type,
         hour: row.log_hour,
+        placementId,
         pit: areaCode[row.mining_area_id] || "",
         dump: dumpCode[row.dumping_area_id] || "",
         from: excCode[row.excavator_id] || "",
+        digBlock:
+          digMap.get(
+            `${slotKey(row.shift_id, row.log_hour, row.placement_id)}|${row.material_id}|${row.dumping_area_id}|${row.truck_model_id}`,
+          ) || "",
+        rl: rlAt(shift.shift_date, shift.shift_type, row.log_hour, row.placement_id),
         materialType: materialTypeFor(oreType, materialRoutes.value, isWaste),
         oreType,
         model,
         trips,
+        factor: factorFor(model, shift.shift_date),
+        remark: noteMap.get(slotKey(row.shift_id, row.log_hour, row.placement_id)) || "",
       };
 
       let day = byDate.get(shift.shift_date);

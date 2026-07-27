@@ -6,7 +6,11 @@ import { cellRef, STYLE } from "./xlsx.js";
 //   • Settings ▸ Backup data    — one sheet PER DAY over a date range (useBackupExport)
 //
 // A `record` is one trip bucket, exactly as Data entry keys it:
-//   { shiftType, hour, pit, dump, from, materialType, oreType, model, trips }
+//   { shiftType, hour, placementId, pit, dump, from, digBlock, rl, materialType,
+//     oreType, model, trips, factor, remark }
+// placementId groups the row (one Data entry row = one placement), rl / remark are
+// that placement's values for the hour, and factor is the model's tonnes/trip for
+// the record's own date.
 
 // Operational-day hour order: Day 06→17 then Night 18→05. Used so the rows list
 // chronologically across the shift boundary instead of plain 00→23.
@@ -21,6 +25,10 @@ const orderIndex = (shiftType, hour) =>
 
 // A zero data cell is left blank (but keeps its border) to match the printed look.
 const numCell = (v, style) => (v > 0 ? { v, t: "n", s: style } : { v: "", s: style });
+// For measured values (RL, factor) where 0 is a real reading — only "no value at
+// all" blanks out, so a genuine 0 still prints.
+const valCell = (v, style) =>
+  v === "" || v == null || Number.isNaN(Number(v)) ? { v: "", s: style } : { v: Number(v), t: "n", s: style };
 
 // An entry row stores the ORE TYPE code (the Data entry form's "Ore type"); its
 // "Material type" (Ore / Waste) comes from the material_routes pairing, falling back
@@ -45,9 +53,10 @@ export const modelColumns = (records, masterCodes = []) => {
 };
 
 // Shared header: a full-width title row, then a two-row band where `stubs` (the left
-// label columns) merge vertically and a single "Trip" cell spans the model columns +
-// Grand Total, with model names + "Grand Total" beneath it.
-const buildHeader = (rows, merges, width, title, stubs) => {
+// label columns) and `tail` (the columns after the trip counts) merge vertically, and
+// a single "Trip" cell spans the model columns + Grand Total with the model names +
+// "Grand Total" beneath it.
+const buildHeader = (rows, merges, width, title, stubs, tail = []) => {
   const blank = () => Array.from({ length: width }, () => null);
   const t = blank();
   t[0] = { v: title, s: STYLE.TITLE };
@@ -60,25 +69,37 @@ const buildHeader = (rows, merges, width, title, stubs) => {
     h1[c] = { v: label, s: STYLE.HEADER };
     merges.push(`${cellRef(1, c)}:${cellRef(2, c)}`);
   });
-  h1[stubs.length] = { v: "Trip", s: STYLE.HEADER };
+  const bandStart = stubs.length;
+  const bandEnd = width - 1 - tail.length;
+  h1[bandStart] = { v: "Trip", s: STYLE.HEADER };
   // Skip the merge when the band is a single column (no model columns at all) —
   // Excel treats a one-cell merge as a repairable defect.
-  if (width - 1 > stubs.length) merges.push(`${cellRef(1, stubs.length)}:${cellRef(1, width - 1)}`);
+  if (bandEnd > bandStart) merges.push(`${cellRef(1, bandStart)}:${cellRef(1, bandEnd)}`);
+  tail.forEach((label, i) => {
+    const c = bandEnd + 1 + i;
+    h1[c] = { v: label, s: STYLE.HEADER };
+    merges.push(`${cellRef(1, c)}:${cellRef(2, c)}`);
+  });
   return { h1, h2, blank };
 };
 
-const TRIP_STUBS = ["Time", "Pit", "Dump Area", "From", "Material type", "Ore type"];
+const TRIP_STUBS = ["Time", "Pit", "Dump Area", "From", "Dig Block", "RL", "Material type", "Ore type"];
+const TRIP_TAIL = ["Truck Factor", "Remark"];
 
-// The report sheet — one row per Time × Pit × Dump Area × From × Material type ×
-// Ore type, trips per truck model + a Grand Total column and footer.
+// The report sheet — one row per Time × Pit × Dump Area × From × Dig Block ×
+// Material type × Ore type (per Data entry row), trips per truck model with a Grand
+// Total column and footer, then the row's Truck Factor and Remark.
 export const buildTripSheet = ({ records, models, title, name = "Hourly Trip Report" }) => {
   const stubs = TRIP_STUBS;
+  const tail = TRIP_TAIL;
   const M = models.length;
-  const width = stubs.length + M + 1;
   const colGrand = stubs.length + M;
+  const colFactor = colGrand + 1;
+  const colRemark = colFactor + 1;
+  const width = colRemark + 1;
   const rows = [];
   const merges = [];
-  const { h1, h2, blank } = buildHeader(rows, merges, width, title, stubs);
+  const { h1, h2, blank } = buildHeader(rows, merges, width, title, stubs, tail);
   models.forEach((m, i) => {
     h2[stubs.length + i] = { v: m, s: STYLE.HEADER };
   });
@@ -87,7 +108,11 @@ export const buildTripSheet = ({ records, models, title, name = "Hourly Trip Rep
 
   const agg = new Map();
   records.forEach((r) => {
-    const key = `${r.shiftType}|${r.hour}|${r.pit}|${r.dump}|${r.from}|${r.materialType}|${r.oreType}`;
+    // placementId is part of the key but not a column: one Data entry row = one
+    // placement, and RL / Remark belong to it — so two placements of the same
+    // excavator in the same pit stay separate rows instead of merging with one of
+    // their RL / Remark values silently winning.
+    const key = [r.shiftType, r.hour, r.placementId ?? "", r.pit, r.dump, r.from, r.digBlock ?? "", r.materialType, r.oreType].join("|");
     let a = agg.get(key);
     if (!a) {
       a = {
@@ -96,15 +121,20 @@ export const buildTripSheet = ({ records, models, title, name = "Hourly Trip Rep
         pit: r.pit,
         dump: r.dump,
         from: r.from,
+        digBlock: r.digBlock ?? "",
+        rl: r.rl ?? "",
         materialType: r.materialType,
         oreType: r.oreType,
+        remark: r.remark ?? "",
         per: {},
         total: 0,
+        tonnes: 0,
       };
       agg.set(key, a);
     }
     a.per[r.model] = (a.per[r.model] || 0) + r.trips;
     a.total += r.trips;
+    a.tonnes += r.trips * (Number(r.factor) || 0);
   });
   const list = [...agg.values()].sort(
     (a, b) =>
@@ -112,27 +142,39 @@ export const buildTripSheet = ({ records, models, title, name = "Hourly Trip Rep
       a.pit.localeCompare(b.pit) ||
       a.dump.localeCompare(b.dump) ||
       a.from.localeCompare(b.from) ||
+      a.digBlock.localeCompare(b.digBlock) ||
       a.materialType.localeCompare(b.materialType) ||
       a.oreType.localeCompare(b.oreType),
   );
 
+  // Tonnes/trip for the row. A row normally carries one truck model, so this is that
+  // model's factor; when trips are split across models it's the effective (trip-
+  // weighted) factor, which keeps factor × trips = the row's tonnes either way.
+  const effectiveFactor = (a) => (a.total > 0 ? Math.round((a.tonnes / a.total) * 100) / 100 : "");
+
   const modelTotals = {};
   let grand = 0;
+  let grandTonnes = 0;
   list.forEach((a) => {
     const row = blank();
     row[0] = { v: hourRange(a.hour), s: STYLE.LABEL };
     row[1] = { v: a.pit, s: STYLE.LABEL };
     row[2] = { v: a.dump, s: STYLE.LABEL };
     row[3] = { v: a.from, s: STYLE.LABEL };
-    row[4] = { v: a.materialType, s: STYLE.LABEL };
-    row[5] = { v: a.oreType, s: STYLE.LABEL };
+    row[4] = { v: a.digBlock, s: STYLE.LABEL };
+    row[5] = valCell(a.rl, STYLE.NUM);
+    row[6] = { v: a.materialType, s: STYLE.LABEL };
+    row[7] = { v: a.oreType, s: STYLE.LABEL };
     models.forEach((m, i) => {
       const v = a.per[m] || 0;
       row[stubs.length + i] = numCell(v, STYLE.NUM);
       modelTotals[m] = (modelTotals[m] || 0) + v;
     });
     row[colGrand] = numCell(a.total, STYLE.TOTAL_NUM);
+    row[colFactor] = valCell(effectiveFactor(a), STYLE.NUM);
+    row[colRemark] = { v: a.remark, s: STYLE.LABEL };
     grand += a.total;
+    grandTonnes += a.tonnes;
     rows.push(row);
   });
 
@@ -144,17 +186,25 @@ export const buildTripSheet = ({ records, models, title, name = "Hourly Trip Rep
     gr[stubs.length + i] = numCell(modelTotals[m] || 0, STYLE.TOTAL_NUM);
   });
   gr[colGrand] = numCell(grand, STYLE.TOTAL_NUM);
+  // Footer factor = tonnes / trips across every row, so it stays consistent with the
+  // per-row column instead of summing factors.
+  gr[colFactor] = valCell(grand > 0 ? Math.round((grandTonnes / grand) * 100) / 100 : "", STYLE.TOTAL_NUM);
+  gr[colRemark] = { v: "", s: STYLE.TOTAL_LABEL };
   rows.push(gr);
 
   const cols = Array.from({ length: width }, (_, i) => {
-    if (i === 0) return { width: 14 };
-    if (i === 1) return { width: 10 };
-    if (i === 2) return { width: 24 };
-    if (i === 3) return { width: 10 };
-    if (i === 4) return { width: 14 };
-    if (i === 5) return { width: 12 };
+    if (i === 0) return { width: 14 }; // Time
+    if (i === 1) return { width: 10 }; // Pit
+    if (i === 2) return { width: 24 }; // Dump Area
+    if (i === 3) return { width: 10 }; // From
+    if (i === 4) return { width: 12 }; // Dig Block
+    if (i === 5) return { width: 8 }; // RL
+    if (i === 6) return { width: 14 }; // Material type
+    if (i === 7) return { width: 12 }; // Ore type
     if (i === colGrand) return { width: 12 };
-    return { width: 11 };
+    if (i === colFactor) return { width: 12 };
+    if (i === colRemark) return { width: 34 };
+    return { width: 11 }; // truck models
   });
   return { name, cols, rows, merges, freeze: { xSplit: stubs.length, ySplit: 3 } };
 };
