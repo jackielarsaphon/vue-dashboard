@@ -67,7 +67,11 @@ let placementEditorsMissing = false;
 // run the UI still edits trucks optimistically for the session; writes just don't
 // persist instead of erroring.
 let placementTrucksMissing = false;
-const isMissingTableError = (error) =>
+// Same self-disable for entry_dig_blocks (the per-trip-row "Dig block"). Until
+// supabase/entry_dig_blocks.sql is run, the field still edits for the session; the
+// value just doesn't persist instead of erroring.
+let digBlocksMissing = false;
+export const isMissingTableError = (error) =>
   !!error &&
   (error.code === "42P01" ||
     error.code === "PGRST205" ||
@@ -385,10 +389,36 @@ const fetchDateEntries = async (date) => {
         const rowKey = `${materialCode}|${dumpCode}|${truckCode}`;
         let uiRow = excEntry.rows.find((item) => item.id === rowKey);
         if (!uiRow) {
-          uiRow = { id: rowKey, material: materialCode, dump: dumpCode, model: truckCode, trips: 0 };
+          uiRow = { id: rowKey, material: materialCode, dump: dumpCode, model: truckCode, trips: 0, digBlock: "" };
           excEntry.rows.push(uiRow);
         }
         uiRow.trips = row.trips;
+      });
+    }
+  }
+
+  // Per-row Dig block (public.entry_dig_blocks) — attached onto the trip row it
+  // belongs to, so it travels with the row like material / location / dump model.
+  // Best-effort: if the table hasn't been created yet the query errors and dig
+  // blocks simply read blank until the migration is run.
+  if (shiftIds.length && !digBlocksMissing) {
+    const { data: digRows, error: digError } = await supabase
+      .from("entry_dig_blocks")
+      .select("placement_id, shift_id, log_hour, material_id, dumping_area_id, truck_model_id, dig_block")
+      .in("shift_id", shiftIds);
+    if (isMissingTableError(digError)) {
+      digBlocksMissing = true;
+    } else if (!digError && digRows) {
+      digRows.forEach((row) => {
+        const shiftType = shiftTypeById[row.shift_id];
+        if (!shiftType) return;
+        const entry = newEntries[keyFor(date, shiftType, row.log_hour)]?.[row.placement_id];
+        if (!entry) return;
+        const materialCode = codeOf(materialsStore.items.value, row.material_id);
+        const dumpCode = codeOf(dumpingAreasStore.items.value, row.dumping_area_id);
+        const truckCode = codeOf(truckModelsStore.items.value, row.truck_model_id);
+        const uiRow = entry.rows.find((item) => item.id === `${materialCode}|${dumpCode}|${truckCode}`);
+        if (uiRow) uiRow.digBlock = row.dig_block || "";
       });
     }
   }
@@ -737,6 +767,7 @@ const removePlacementTripsForDate = async (placementId, date) => {
   const shiftIds = (await findShiftIds(date)).map((row) => row.id);
   if (shiftIds.length) {
     await supabase.from("production_entries").delete().in("shift_id", shiftIds).eq("placement_id", placementId);
+    if (!digBlocksMissing) await supabase.from("entry_dig_blocks").delete().in("shift_id", shiftIds).eq("placement_id", placementId);
   }
 
   const prefix = `${date}_`;
@@ -755,9 +786,9 @@ const removePlacementTripsForDate = async (placementId, date) => {
   dropFromStore(draftRowsByKey);
 };
 
-// Add a draft trip row. An optional `template` (material/dump/model) seeds the
-// material+location+dump model — used to carry the previous hour's rows forward —
-// while trips always start at 0.
+// Add a draft trip row. An optional `template` (material/dump/model/digBlock) seeds
+// the material+location+dump model+dig block — used to carry the previous hour's rows
+// forward — while trips always start at 0.
 const addEntryRow = (placementId, template) => {
   const key = currentKey.value;
   const slot = placementId;
@@ -769,14 +800,80 @@ const addEntryRow = (placementId, template) => {
     dump: template?.dump ?? dumpingAreaCodes.value[0] ?? "",
     model: template?.model ?? truckModels.value[0]?.code ?? "",
     trips: 0,
+    digBlock: template?.digBlock ?? "",
   });
   drafts[key] = { ...(drafts[key] || {}), [slot]: list };
   draftRowsByKey.value = drafts;
 };
 
+// A trip row's DB identity (material / dumping area / truck model ids). Reads the
+// codes from the composite row id, or from the draft row when it hasn't been
+// persisted yet. `create: true` auto-creates a missing material / dumping-area
+// master row (same on-demand rule as saving trips); without it a code that isn't in
+// the master yields null — right for a DELETE, which can't have a record to remove.
+const rowIdentityIds = async (placementId, rowId, { create = false } = {}) => {
+  let materialCode;
+  let dumpCode;
+  let modelCode;
+  if (rowId.startsWith("draft-")) {
+    const draftRow = draftRowsByKey.value[currentKey.value]?.[placementId]?.find((item) => item.id === rowId);
+    if (!draftRow) return null;
+    ({ material: materialCode, dump: dumpCode, model: modelCode } = draftRow);
+  } else {
+    [materialCode, dumpCode, modelCode] = rowId.split("|");
+  }
+  const truck = truckModelsStore.items.value.find((row) => row.code === modelCode);
+  if (!truck) return null;
+  const materialId = create
+    ? await getOrCreateMaterialId(materialCode)
+    : materialsStore.items.value.find((row) => row.code === materialCode)?.id;
+  if (!materialId) return null;
+  const dumpingAreaId = create
+    ? await getOrCreateDumpingAreaId(dumpCode)
+    : dumpingAreasStore.items.value.find((row) => row.code === dumpCode)?.id;
+  if (!dumpingAreaId) return null;
+  return { material_id: materialId, dumping_area_id: dumpingAreaId, truck_model_id: truck.id };
+};
+
+// Persist one trip row's Dig block for the current (date, shift, hour). Kept in its
+// own table (public.entry_dig_blocks) under the row's identity, so it survives a row
+// with no trips yet and isn't lost when the trips are cleared. The caller owns the
+// on-screen value (row.digBlock) — this is the write side only. A blank value removes
+// the record. Best-effort, like the note / RL / trucks fields: it self-disables until
+// the migration is run rather than erroring.
+const setRowDigBlock = async (placementId, rowId, rawValue) => {
+  if (digBlocksMissing || !placementId) return;
+  // Never write for a slot that hasn't happened yet (same rule as trips).
+  if (isFutureSlot(selection.date, selection.shiftType, selection.hour)) return;
+  const value = String(rawValue ?? "").trim().toUpperCase(); // codes are stored uppercase
+  const identity = await rowIdentityIds(placementId, rowId, { create: !!value });
+  if (!identity) return;
+  const shiftId = await getOrCreateShiftId(selection.date, selection.shiftType);
+  if (!shiftId) return;
+  const match = { shift_id: shiftId, log_hour: selection.hour, placement_id: placementId, ...identity };
+
+  if (!value) {
+    const { error } = await supabase.from("entry_dig_blocks").delete().match(match);
+    if (isMissingTableError(error)) digBlocksMissing = true;
+    return;
+  }
+  const { error } = await supabase.from("entry_dig_blocks").upsert(
+    { ...match, dig_block: value, updated_at: new Date().toISOString() },
+    { onConflict: "shift_id,log_hour,placement_id,material_id,dumping_area_id,truck_model_id" },
+  );
+  if (isMissingTableError(error)) {
+    digBlocksMissing = true;
+    return;
+  }
+  await stampEditor(placementId);
+};
+
 const removeEntryRow = async (placementId, rowId) => {
   const key = currentKey.value;
   const slot = placementId;
+  // Drop this row's Dig block too, so deleting a row leaves nothing behind that
+  // would reappear if the same material/location/model combination is re-added.
+  await setRowDigBlock(placementId, rowId, "");
   if (rowId.startsWith("draft-")) {
     const drafts = { ...draftRowsByKey.value };
     const list = (drafts[key]?.[slot] || []).filter((row) => row.id !== rowId);
@@ -880,6 +977,24 @@ const updateEntryRow = async (placementId, rowId, patch) => {
     }
   }
 
+  // The Dig block hangs off the same identity, so move it with the row: drop the
+  // record under the old keys, then re-write it under the new ones. When the row
+  // merges into an existing row, that row keeps its OWN dig block (nothing re-written).
+  const digBlock = String(row.digBlock ?? "").trim();
+  const merging = !!entry.rows.find((item) => item.id === nextId && item !== row);
+  if (shiftId && !digBlocksMissing && oldMaterialRow && oldDumpRow && oldTruckRow) {
+    const { error } = await supabase.from("entry_dig_blocks").delete().match({
+      shift_id: shiftId,
+      log_hour: selection.hour,
+      placement_id: placementId,
+      material_id: oldMaterialRow.id,
+      dumping_area_id: oldDumpRow.id,
+      truck_model_id: oldTruckRow.id,
+    });
+    if (isMissingTableError(error)) digBlocksMissing = true;
+    else if (digBlock && !merging) await setRowDigBlock(placementId, nextId, digBlock);
+  }
+
   const existingTarget = entry.rows.find((item) => item.id === nextId);
   if (existingTarget && existingTarget !== row) {
     existingTarget.trips = (Number(existingTarget.trips) || 0) + trips;
@@ -910,7 +1025,7 @@ const updateLocalTrip = (placementId, rowId, value) => {
   let row = entry.rows.find((item) => item.id === rowId);
   if (!row) {
     const [material, dump, model] = rowId.split("|");
-    row = { id: rowId, material, dump, model, trips: 0 };
+    row = { id: rowId, material, dump, model, trips: 0, digBlock: "" };
     entry.rows.push(row);
   }
   row.trips = value;
@@ -941,6 +1056,7 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
   let materialCode;
   let dumpCode;
   let modelCode;
+  let draftDigBlock = "";
   if (isDraft) {
     const draftRow = draftRowsByKey.value[currentKey.value]?.[slot]?.find((item) => item.id === rowId);
     if (!draftRow) return false;
@@ -949,6 +1065,7 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
     materialCode = draftRow.material;
     dumpCode = draftRow.dump;
     modelCode = draftRow.model;
+    draftDigBlock = String(draftRow.digBlock ?? "").trim();
   } else {
     [materialCode, dumpCode, modelCode] = rowId.split("|");
   }
@@ -997,6 +1114,10 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
 
   const compositeId = `${materialCode}|${dumpCode}|${modelCode}`;
   if (isDraft) {
+    // The draft becomes a persisted row here, so its Dig block needs a home: write it
+    // now (a value typed — or carried in from the previous hour — before the trips
+    // would otherwise be lost when the draft is dropped below).
+    if (draftDigBlock) await setRowDigBlock(placementId, rowId, draftDigBlock);
     const key = currentKey.value;
     const drafts = { ...draftRowsByKey.value };
     const list = (drafts[key]?.[slot] || []).filter((item) => item.id !== rowId);
@@ -1004,6 +1125,10 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
     draftRowsByKey.value = drafts;
   }
   updateLocalTrip(placementId, compositeId, value);
+  if (isDraft && draftDigBlock) {
+    const persisted = entriesByKey.value[currentKey.value]?.[slot]?.rows.find((item) => item.id === compositeId);
+    if (persisted) persisted.digBlock = draftDigBlock;
+  }
   return true;
 };
 
@@ -1047,18 +1172,20 @@ const setPlacementNote = async (placementId, value) => {
 // so earlier hours are never auto-edited and only a real UI edit persists (to the hour
 // being edited). A per-hour removal is a hard reset: the walk stops at it and never
 // carries across (the current hour's own removal just hides the row entirely).
-const carriedValueFor = (store, placementId) => {
-  const order = SHIFT_HOURS[selection.shiftType] || [];
-  const idx = order.indexOf(selection.hour);
+const carriedValueAt = (store, placementId, date, shiftType, hour) => {
+  const order = SHIFT_HOURS[shiftType] || [];
+  const idx = order.indexOf(hour);
   if (idx < 0) return undefined;
   for (let i = idx; i >= 0; i -= 1) {
-    const key = keyFor(selection.date, selection.shiftType, order[i]);
+    const key = keyFor(date, shiftType, order[i]);
     if (i < idx && removedByKey.value[key]?.[placementId]) return undefined;
     const v = store.value[key]?.[placementId];
     if (v !== undefined && v !== null) return v;
   }
   return undefined;
 };
+const carriedValueFor = (store, placementId) =>
+  carriedValueAt(store, placementId, selection.date, selection.shiftType, selection.hour);
 
 // This hour's OWN value only (no carry-forward) — used where the real question is
 // "was anything keyed at THIS hour" (e.g. the blank-row check), not what's displayed.
@@ -1112,6 +1239,16 @@ const setPlacementRl = async (placementId, value) => {
     { onConflict: "placement_id,shift_id,log_hour" },
   );
 };
+
+// RL / Production note for a placement at ANY (date, shift, hour) — not just the
+// selected one. The Excel exports walk every hour of a date, and they must show what
+// the grid shows: RL with the same forward carry, the note hour-scoped (never carried).
+const placementRlAt = (placementId, date, shiftType, hour) => {
+  const v = carriedValueAt(rlByKey, placementId, date, shiftType, hour);
+  return v == null ? "" : v;
+};
+const placementNoteAt = (placementId, date, shiftType, hour) =>
+  notesByKey.value[keyFor(date, shiftType, hour)]?.[placementId] ?? "";
 
 // Trucks in fleet for a placement at the selected hour, carried forward like RL:
 // the last hour's value keeps showing until a later hour overrides it (display-only).
@@ -1261,6 +1398,7 @@ const removePlacementFromHour = async (placementId) => {
   const hour = selection.hour;
 
   await supabase.from("production_entries").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
+  if (!digBlocksMissing) await supabase.from("entry_dig_blocks").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   await supabase.from("placement_rl").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   if (!placementTrucksMissing) await supabase.from("placement_trucks").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
   await supabase.from("placement_notes").delete().eq("placement_id", placementId).eq("shift_id", shiftId).eq("log_hour", hour);
@@ -1308,6 +1446,8 @@ export const useEntryStore = () => ({
   setPlacementNote,
   placementRlFor,
   placementRlExactFor,
+  placementRlAt,
+  placementNoteAt,
   setPlacementRl,
   placementTrucksFor,
   placementTrucksExactFor,
@@ -1321,6 +1461,7 @@ export const useEntryStore = () => ({
   removeEntryRow,
   updateEntryRow,
   setRowTrips,
+  setRowDigBlock,
   // Persist a production date as a shifts row (used by the Date header step so
   // picking/changing the date is saved to the database immediately).
   ensureShift: (date, shiftType) => getOrCreateShiftId(date, shiftType),

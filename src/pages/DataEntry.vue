@@ -50,6 +50,7 @@ const {
   removeEntryRow,
   updateEntryRow,
   setRowTrips,
+  setRowDigBlock,
 } = useEntryStore();
 
 // A Data entry row is one placement; its trips live under the slot key = its
@@ -741,6 +742,16 @@ const setTrip = (row, value) => {
   );
 };
 
+// Dig block for a row: which block/bench the material was dug from. Free text, kept
+// per row next to its Ore type. Reflect the typed value locally (the row owns what
+// the field shows, like Trips) then persist it — it saves on blur / Enter.
+const setDigBlock = (row, value) => {
+  if (!openExc.value) return;
+  const next = String(value ?? "").trim().toUpperCase(); // codes are stored uppercase
+  row.digBlock = next;
+  setRowDigBlock(openExc.value.placementId, row.id, next);
+};
+
 const addModalRow = () => {
   if (!openExc.value) return;
   addEntryRow(openExc.value.placementId);
@@ -752,9 +763,9 @@ const deleteModalRow = (id) => {
   removeEntryRow(openExc.value.placementId, id);
 };
 
-// Carry the most recent EARLIER hour's rows (material / ore / location / dump model)
-// into a fresh hour as draft rows — but with Trips reset to 0, so the operator only
-// re-keys the trip counts. Returns true when something was carried.
+// Carry the most recent EARLIER hour's rows (material / ore / dig block / location /
+// dump model) into a fresh hour as draft rows — but with Trips reset to 0, so the
+// operator only re-keys the trip counts. Returns true when something was carried.
 const HOUR_SEQUENCE = {
   Day: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
   Night: [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
@@ -767,7 +778,9 @@ const carryForwardRows = (placement) => {
   for (let i = idx - 1; i >= 0; i -= 1) {
     const prev = getBucket(selection.date, selection.shiftType, order[i])[slot];
     if (prev && prev.rows.length > 0) {
-      prev.rows.forEach((row) => addEntryRow(placement.placementId, { material: row.material, dump: row.dump, model: row.model }));
+      prev.rows.forEach((row) =>
+        addEntryRow(placement.placementId, { material: row.material, dump: row.dump, model: row.model, digBlock: row.digBlock }),
+      );
       return true;
     }
   }
@@ -1166,6 +1179,7 @@ onUnmounted(() => {
               <tr>
                 <th class="th-mat">Material type</th>
                 <th class="th-dump">Ore type</th>
+                <th class="th-dump">Dig block</th>
                 <th class="th-dump">To location</th>
                 <th class="th-dump">Dump model</th>
                 <th class="th-tot">Factor (t/trip)</th>
@@ -1188,6 +1202,15 @@ onUnmounted(() => {
                     placeholder="Search ore type"
                     empty-text="No ore type available"
                     @change="setRowOreType(row, $event)"
+                  />
+                </td>
+                <td data-label="Dig block">
+                  <input
+                    class="gt-text mono"
+                    type="text"
+                    placeholder="e.g. B12"
+                    :value="row.digBlock"
+                    @change="setDigBlock(row, $event.target.value)"
                   />
                 </td>
                 <td data-label="To location">
@@ -1229,7 +1252,7 @@ onUnmounted(() => {
             </tbody>
             <tfoot>
               <tr>
-                <td class="tf-label" colspan="5">Trips total</td>
+                <td class="tf-label" colspan="6">Trips total</td>
                 <td data-label="Total trips">{{ modalGrandTotal }}</td>
                 <td class="tf-grand" data-label="Total tonnes">{{ fmt(modalGrandTonnes) }}</td>
                 <td />

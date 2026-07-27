@@ -1001,6 +1001,22 @@ table.grid-table thead th.th-truck { font-family: var(--font-mono); color: var(-
   cursor: pointer;
 }
 .gt-sel:focus { outline: none; border-color: var(--accent); }
+/* Free-text cell in the trip grid (Dig block) — same box as .gt-sel, minus the
+   dropdown affordance. Uppercased on the way in, like the other code fields. */
+.gt-text {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 12px;
+  width: 100%;
+  min-width: 84px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gt-text:focus { outline: none; border-color: var(--accent); }
+.gt-text::placeholder { color: var(--ink-3); text-transform: none; letter-spacing: 0.02em; }
 .gt-num {
   background: var(--panel-2);
   color: var(--ink);
@@ -1362,6 +1378,7 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
   .exc-mini-input,
   .exc-note-input,
   .gt-num,
+  .gt-text,
   .gt-sel { font-size: 16px; }
 
   /* ── Excavator rows → cards ── */
