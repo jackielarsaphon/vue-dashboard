@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watchEffect } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
+import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useTruckModelsStore } from "../stores/truckModelsStore";
 import { useTruckFactors, DEFAULT_TONNES_PER_TRIP } from "../composables/useTruckFactors.js";
 import TopBar from "../components/common/TopBar.vue";
@@ -15,6 +16,7 @@ import TweakColor from "../components/common/TweakColor.vue";
 defineProps({ embedded: { type: Boolean, default: false } });
 
 const store = useTruckModelsStore();
+const { selection } = useShiftSelection();
 const { rows: factorRows, factorFor, historyFor, weekStartOf, setWeekFactor } = useTruckFactors();
 
 const [t, setTweak] = useTweaks({
@@ -34,15 +36,21 @@ const rows = computed(() => store.items.value.filter((row) => row.active).sort((
 
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayIso = isoOf(new Date());
-const thisWeekStart = weekStartOf(todayIso);
+
+// The page follows the DATE picked in the top bar (one shared date across pages), not
+// the wall clock — so browsing a past date shows and seeds THAT week's factor. This
+// matches Data entry, whose factor edit already writes to the selected date's week.
+const selectedIso = computed(() => selection.date || todayIso);
+const selectedWeekStart = computed(() => weekStartOf(selectedIso.value));
 
 const fmtWeek = (iso) => {
   const [y, m, d] = String(iso).split("-");
   return d && m && y ? `${d}/${m}/${y}` : iso;
 };
 
-// Effective factor for this week (the value dashboards use for current data).
-const currentFactor = (code) => factorFor(code, todayIso);
+// Effective factor for the selected date's week (the value the dashboards use for
+// that date's data).
+const currentFactor = (code) => factorFor(code, selectedIso.value);
 // Whether the model has any explicit factor source (a weekly record or capacity),
 // so we can mute the fallback default.
 const hasExplicit = (code, row) => (factorRows.value.length > 0 && historyFor(code).length > 0) || row.capacity_tonnes != null;
@@ -120,15 +128,20 @@ const confirmDelete = async () => {
 // ---- weekly factor history modal ----
 const factorModalOpen = ref(false);
 const factorCode = ref("");
-const newWeekDate = ref(todayIso);
+// Seeded from the top bar's date every time the modal opens (see openFactors), so
+// "Week (any day in it)" starts on the week being worked on.
+const newWeekDate = ref(selectedIso.value);
 const newFactor = ref("");
 const factorMessage = ref("");
 
 const factorHistory = computed(() => (factorCode.value ? historyFor(factorCode.value) : []));
+// The Saturday the typed day falls in — shown live so the week being written to is
+// never a guess.
+const newWeekStart = computed(() => weekStartOf(newWeekDate.value || selectedIso.value));
 
 const openFactors = (row) => {
   factorCode.value = row.code;
-  newWeekDate.value = todayIso;
+  newWeekDate.value = selectedIso.value;
   newFactor.value = "";
   factorMessage.value = "";
   factorModalOpen.value = true;
@@ -149,7 +162,7 @@ const addWeek = async () => {
     factorMessage.value = "Enter a positive factor (tonnes per trip)";
     return;
   }
-  const week = weekStartOf(newWeekDate.value || todayIso);
+  const week = newWeekStart.value;
   await setWeekFactor(factorCode.value, week, value);
   factorMessage.value = `Saved ${value.toFixed(2)} t/trip for week of ${fmtWeek(week)}`;
   newFactor.value = "";
@@ -179,7 +192,10 @@ const confirmDeleteWeek = async () => {
       <div>
         <span class="sum-k">Master data</span>
         <h1>Dump model</h1>
-        <p>Register dump (truck) models and their weekly TD&amp;MVDC factor (tonnes per trip) used to convert trips to tonnes.</p>
+        <p>
+          Register dump (truck) models and their weekly TD&amp;MVDC factor (tonnes per trip) used to convert trips to tonnes.
+          Factors follow the date picked in the top bar — showing the week of <b>{{ fmtWeek(selectedWeekStart) }}</b>.
+        </p>
       </div>
       <div class="mining-total mono">{{ rows.length }}</div>
     </section>
@@ -201,7 +217,7 @@ const confirmDeleteWeek = async () => {
           <div class="mining-row mining-row-head">
             <span>Dump model</span>
             <span>Company</span>
-            <span>Factor — week of {{ fmtWeek(thisWeekStart) }}</span>
+            <span>Factor — week of {{ fmtWeek(selectedWeekStart) }}</span>
             <span>Action</span>
           </div>
           <div v-for="row in rows" :key="row.id" class="mining-row">
@@ -330,7 +346,9 @@ const confirmDeleteWeek = async () => {
           <p v-if="factorMessage" class="mining-message">{{ factorMessage }}</p>
         </div>
         <div class="modal-foot">
-          <span class="foot-note">Week start is the Saturday of the chosen week.</span>
+          <span class="foot-note">
+            Week start is the Saturday of the chosen week — saves to <b class="mono">{{ fmtWeek(newWeekStart) }}</b>.
+          </span>
           <div class="foot-actions">
             <button class="btn btn-primary" type="button" @click="closeFactors">Done</button>
           </div>
