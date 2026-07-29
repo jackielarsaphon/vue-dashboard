@@ -1723,3 +1723,191 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
   min-height: 44px;
   font-size: 12px;
 }
+
+/* =============================================================================
+   Step 3 — Rainfall log. A wide, sheet-shaped table (Area … Remark) that scrolls
+   horizontally inside the panel; the page itself never scrolls sideways. Desktop
+   only: Data entry is trips-only at phone width, so there is no ≤640px variant.
+   ============================================================================= */
+.rain-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px 20px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.rain-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.rain-head-id h2 {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.rain-head-sub {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.rain-metrics {
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+.rain-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+}
+.rain-metric b {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rain-metric span {
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rain-metric.alert b { color: var(--alert); }
+.rain-scroll {
+  overflow-x: auto;
+  /* Give the floating SearchSelect menus room: they are position:fixed, so the
+     scroller only needs to not clip the row itself. */
+  padding-bottom: 2px;
+}
+table.rain-table {
+  min-width: 1240px;
+}
+table.rain-table th,
+table.rain-table td {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+table.rain-table thead th.th-area,
+table.rain-table thead th.th-intensity,
+table.rain-table thead th.th-remark { text-align: left; }
+table.rain-table th.th-area,
+table.rain-table td:first-child { min-width: 130px; }
+table.rain-table th.th-remark,
+table.rain-table td.rain-remark-cell { min-width: 200px; white-space: normal; }
+/* Visual break before the Affect Opt block (its own start/end/lost columns). */
+table.rain-table .rain-group-start { border-left: 1px solid var(--line); }
+td.rain-derived {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+td.rain-derived.muted { color: var(--ink-3); font-weight: 500; }
+/* Intensity keeps the sheet's colour coding: the heavier the rain, the redder. */
+.rain-intensity { font-weight: 600; }
+.rain-intensity.is-light { background: color-mix(in srgb, var(--alert) 10%, var(--panel-2)); }
+.rain-intensity.is-moderate { background: color-mix(in srgb, var(--alert) 24%, var(--panel-2)); }
+.rain-intensity.is-heavy {
+  background: var(--alert);
+  border-color: var(--alert);
+  color: #fff;
+}
+/* The popup list is drawn by the browser — keep it on the panel colours instead
+   of inheriting the (possibly red) closed-field styling. */
+.rain-intensity option,
+.rain-yn option {
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 500;
+}
+.rain-yn {
+  width: 68px;
+  text-align: center;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.rain-yn.on {
+  background: var(--alert);
+  border-color: var(--alert);
+  color: #fff;
+}
+.rain-empty {
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 12px;
+  padding: 18px 8px;
+}
+.rain-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rain-foot .foot-note { font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em; }
+
+/* Lost-time cells open the pop-up below instead of holding their own time input —
+   the row is wide enough already, and a disabled `--:--` field invites mis-clicks. */
+.rain-time-btn {
+  width: 100%;
+  min-width: 74px;
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 5px 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  cursor: pointer;
+}
+.rain-time-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.rain-time-btn:disabled { opacity: 0.4; cursor: not-allowed; color: var(--ink-3); }
+.lost-time-modal { width: min(520px, 94vw); }
+/* Keep the dialog's label and pit chip on one line — only the rain window wraps. */
+.lost-time-modal .modal-title .exc,
+.lost-time-modal .modal-title .chip { white-space: nowrap; }
+.lost-time-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  align-items: end;
+  gap: 12px;
+}
+/* The red-alert select keeps its pill look, sized to the field like the time inputs. */
+.lost-time-alert .rain-yn { width: 78px; min-height: 38px; }
+.lost-time-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  padding-bottom: 4px;
+}
+.lost-time-result b {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.lost-time-result span {
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* Four columns don't fit a phone-width dialog: pair the fields up instead. */
+@media (max-width: 640px) {
+  .lost-time-fields { grid-template-columns: 1fr 1fr; }
+  .lost-time-result { align-items: flex-start; }
+}

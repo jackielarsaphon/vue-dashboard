@@ -16,7 +16,7 @@ const uuid = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID
 const nowIso = () => new Date().toISOString();
 
 // Tables that carry an updated_at column refreshed on write.
-const TOUCH_UPDATED_AT = new Set(["users", "excavators", "production_entries", "production_plans", "truck_model_factors"]);
+const TOUCH_UPDATED_AT = new Set(["users", "excavators", "production_entries", "production_plans", "truck_model_factors", "app_areas", "rainfall_logs"]);
 
 const withInsertDefaults = (table, row) => {
   const out = { ...row };

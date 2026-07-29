@@ -144,3 +144,186 @@
   color: var(--ink-2);
   font-size: 12px;
 }
+/* =============================================================================
+   Rainfall dashboard (/rainfall) — one block per pit for the selected date: the
+   sheet's table on the left, its Rain duration / Lost time bars on the right.
+   ============================================================================= */
+.rain-dash { grid-template-rows: auto auto auto 1fr; }
+.rr-summary {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.rr-summary-id h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.rr-summary-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.rr-summary-metrics {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.rr-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+}
+.rr-metric b {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rr-metric span {
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rr-metric.alert b { color: var(--alert); }
+.rr-pits {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.rr-pit {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.rr-pit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rr-pit-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+.rr-pit-date { font-size: 12px; color: var(--ink-2); }
+/* Table and chart side by side; they stack on narrow screens (below). */
+.rr-pit-body {
+  display: grid;
+  /* The table carries the Remark text, so give it the wider column. */
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+.rr-table-wrap { overflow-x: auto; min-width: 0; }
+table.rr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+table.rr-table th {
+  /* Header colour is set inline per pit (see PIT_COLORS) — white text over it. */
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+table.rr-table td {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  text-align: center;
+  vertical-align: middle;
+}
+table.rr-table td.num { font-variant-numeric: tabular-nums; }
+/* Period reads as one token ("09:00-10:00"), never split over two lines. */
+table.rr-table td:first-child { white-space: nowrap; }
+table.rr-table td.rr-remark {
+  text-align: left;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+  min-width: 140px;
+  /* Long Thai remarks wrap inside the cell instead of widening the table. */
+  overflow-wrap: anywhere;
+}
+/* Affect operation / Red Alert cells keep the sheet's traffic-light fills. */
+table.rr-table td.rr-yes {
+  background: color-mix(in srgb, var(--alert) 16%, var(--panel));
+  color: var(--alert);
+  font-weight: 600;
+}
+table.rr-table td.rr-no {
+  background: color-mix(in srgb, var(--ok) 14%, var(--panel));
+  color: var(--ok);
+  font-weight: 600;
+}
+table.rr-table td.rr-empty {
+  color: var(--ink-3);
+  padding: 18px 8px;
+}
+table.rr-table tfoot td {
+  background: var(--panel-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+table.rr-table tfoot td.rr-tf-label {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.rr-chart-panel { background: var(--panel-2); min-width: 0; }
+.rr-chart-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+.rr-chart-head h2 { text-transform: none; letter-spacing: 0.04em; font-size: 13px; color: var(--ink); }
+/* Wide days scroll inside the panel instead of squashing the bars. */
+.rr-chart-scroll { overflow-x: auto; max-width: 100%; }
+.rr-chart-scroll::-webkit-scrollbar { height: 6px; }
+.rr-chart-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+/* Cap the height so a short day's chart doesn't scale up to a wall of white space
+   beside its 4-row table; the viewBox keeps the drawing centred and undistorted. */
+.rr-chart { display: block; max-width: none; max-height: 260px; }
+.chart .rr-axis-y { font-size: 9px; }
+.rr-chart-empty {
+  color: var(--ink-3);
+  font-size: 12px;
+  padding: 40px 8px;
+  text-align: center;
+}
+.rr-none {
+  color: var(--ink-2);
+  font-size: 12px;
+  text-align: center;
+  padding: 32px 8px;
+}
+
+@media (max-width: 1100px) {
+  .rr-pit-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .rr-summary { align-items: flex-start; }
+  .rr-summary-metrics { gap: 16px; }
+  .rr-metric b { font-size: 18px; }
+}

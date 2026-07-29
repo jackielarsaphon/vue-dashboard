@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import TopBar from "../components/common/TopBar.vue";
 import MiningArea from "./MiningArea.vue";
+import AppArea from "./AppArea.vue";
 import MaterialRoutes from "./MaterialRoutes.vue";
 import Excavator from "./Excavator.vue";
 import DumpModel from "./DumpModel.vue";
@@ -16,6 +17,7 @@ import BackupData from "./BackupData.vue";
 // export of Data entry (one sheet per day); it lives here so it isn't a nav button.
 const tabs = [
   { key: "mining", label: "Mining data", comp: MiningArea },
+  { key: "apparea", label: "App Area", comp: AppArea },
   { key: "routes", label: "Material routes", comp: MaterialRoutes },
   { key: "excavator", label: "Excavator", comp: Excavator },
   { key: "dumpmodel", label: "Dump model", comp: DumpModel },

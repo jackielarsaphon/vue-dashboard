@@ -7,12 +7,15 @@ import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
+import { useRainfallLog, RAIN_INTENSITIES, durationMinutes, periodLabel, rainMinutes, lostMinutes } from "../composables/useRainfallLog.js";
+import { useAppAreas } from "../composables/useAppAreas.js";
 import { useUsers } from "../composables/useUsers.js";
 import { useTripReportExport } from "../composables/useTripReportExport.js";
 import TopBar from "../components/common/TopBar.vue";
 import ExcelExportButton from "../components/common/ExcelExportButton.vue";
 import StatusDot from "../components/common/StatusDot.vue";
 import SearchSelect from "../components/common/SearchSelect.vue";
+import TimeField from "../components/common/TimeField.vue";
 import ConfirmDialog from "../components/common/ConfirmDialog.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
@@ -149,7 +152,7 @@ const hourLabel = computed(() => {
 const { isMobile } = useIsMobile();
 const currentEntryStep = ref(1);
 const goToEntryStep = (step) => {
-  currentEntryStep.value = Math.min(2, Math.max(1, step));
+  currentEntryStep.value = Math.min(3, Math.max(1, step));
 };
 // On phones the page is trips-only: there's no stepper and no Plan Production
 // step, so always sit on the Excavators step.
@@ -804,9 +807,93 @@ watch(openPlacementId, (id) => {
   }
 });
 
+// --- Step 3: Rainfall log ---------------------------------------------------
+// One row per rain spell, matching the Rainfall sheet. Rows belong to the selected
+// DATE + SHIFT (each crew logs the weather it worked through); Period, Rain duration
+// and Lost time are derived from the times, never keyed.
+const {
+  rows: rainRows,
+  totals: rainTotals,
+  saveState: rainSaveState,
+  saveMessage: rainSaveMessage,
+  logCountForDate: rainCountForDate,
+  addRow: addRainLogRow,
+  updateRow: updateRainRow,
+  removeRow: removeRainRow,
+} = useRainfallLog();
+
+const rainCount = computed(() => rainCountForDate(selection.date));
+
+// Rain is logged per PIT (Copper Pit / Gold Pit), not per pattern code — the weather
+// covers the whole pit. Options come from the App Area master (Settings → App Area);
+// a row also keeps its own value in the list even if that name was later removed
+// there, so nothing already logged goes blank.
+const { areas: appAreas } = useAppAreas();
+const rainAreaOptions = (row) =>
+  row.areaCode && !appAreas.value.includes(row.areaCode) ? [row.areaCode, ...appAreas.value] : appAreas.value;
+
+const hourClock = (hour) => `${String(((hour % 24) + 24) % 24).padStart(2, "0")}:00`;
+
+// A new row starts on the selected HOUR's window (and the first pit), so the usual
+// "it rained this hour" entry only needs the area picked.
+const addRainRow = () => addRainLogRow({ startTime: hourClock(selection.hour), endTime: hourClock(selection.hour + 1) });
+
+const setRainField = (row, field, value) => updateRainRow(row.id, { [field]: value });
+
+// Affect Opt drives the lost-time columns: YES seeds the lost window from the rain
+// window (they usually match) and opens the pop-up so the window, the minutes lost
+// and the red alert are all confirmed in one place; NO clears the window so the row
+// reads blank like the sheet. (Red alert is left alone — it's set independently.)
+const setRainAffect = (row, affected) => {
+  if (!affected) {
+    updateRainRow(row.id, { affectOpt: false, affectStart: "", affectEnd: "" });
+    if (lostTimeDraft.value?.rowId === row.id) closeLostTime();
+    return;
+  }
+  const start = row.affectStart || row.startTime;
+  const end = row.affectEnd || row.endTime;
+  updateRainRow(row.id, { affectOpt: true, affectStart: start, affectEnd: end });
+  lostTimeDraft.value = { rowId: row.id, start, end, redAlert: row.redAlert };
+  nextTick(() => lostStartInput.value?.focus());
+};
+
+// Everything about an affected spell — lost-time window, the minutes it cost and the
+// red alert — is keyed in one small pop-up instead of four inline cells: the row is
+// already wide, and a disabled pair of `--:--` fields is easy to mis-click. It opens
+// on Affect opt = YES, or by clicking either time cell (the clicked one gets focus).
+// It edits a DRAFT and only writes on Done, so Cancel / Esc leaves the row as it was.
+const lostTimeDraft = ref(null); // { rowId, start, end, redAlert } | null
+const lostStartInput = ref(null);
+const lostEndInput = ref(null);
+const lostTimeRow = computed(() => (lostTimeDraft.value ? rainRows.value.find((row) => row.id === lostTimeDraft.value.rowId) : null));
+const lostTimeDraftMinutes = computed(() => (lostTimeDraft.value ? durationMinutes(lostTimeDraft.value.start, lostTimeDraft.value.end) : 0));
+
+const openLostTime = (row, field) => {
+  if (!row.affectOpt) return;
+  lostTimeDraft.value = { rowId: row.id, start: row.affectStart || "", end: row.affectEnd || "", redAlert: row.redAlert };
+  nextTick(() => (field === "end" ? lostEndInput.value?.focus() : lostStartInput.value?.focus()));
+};
+const closeLostTime = () => {
+  lostTimeDraft.value = null;
+};
+// Shortcut for the common case: the operation stopped for exactly as long as it rained.
+const useRainWindowForLostTime = () => {
+  if (!lostTimeDraft.value || !lostTimeRow.value) return;
+  lostTimeDraft.value.start = lostTimeRow.value.startTime;
+  lostTimeDraft.value.end = lostTimeRow.value.endTime;
+};
+const saveLostTime = () => {
+  const draft = lostTimeDraft.value;
+  if (!draft) return;
+  updateRainRow(draft.rowId, { affectStart: draft.start, affectEnd: draft.end, redAlert: draft.redAlert });
+  lostTimeDraft.value = null;
+};
+
 const onKeyDown = (event) => {
   if (event.key === "Escape") {
-    if (addingArea.value) {
+    if (lostTimeDraft.value) {
+      closeLostTime();
+    } else if (addingArea.value) {
       addingArea.value = false;
       selectedAddArea.value = miningDataOptions.value[0] ?? "";
     } else {
@@ -833,7 +920,7 @@ onUnmounted(() => {
     </div>
 
     <section v-if="!isMobile" class="entry-plan-top">
-      <div class="entry-stepper entry-stepper-2" aria-label="Data entry steps">
+      <div class="entry-stepper" aria-label="Data entry steps">
         <button class="entry-step-card" :class="{ active: currentEntryStep === 1 }" type="button" @click="goToEntryStep(1)">
           <span class="entry-step-badge">1</span>
           <div>
@@ -847,6 +934,14 @@ onUnmounted(() => {
           <div>
             <span class="entry-step-title">Excavators</span>
             <span class="entry-step-sub">{{ enteredExcavatorCount }} units</span>
+          </div>
+        </button>
+        <span class="entry-step-line" />
+        <button class="entry-step-node" :class="{ active: currentEntryStep === 3 }" type="button" @click="goToEntryStep(3)">
+          <span class="entry-step-badge">3</span>
+          <div>
+            <span class="entry-step-title">Rainfall</span>
+            <span class="entry-step-sub">{{ rainCount }} rain {{ rainCount === 1 ? "log" : "logs" }}</span>
           </div>
         </button>
       </div>
@@ -1152,6 +1247,227 @@ onUnmounted(() => {
             </div>
           </div>
         </section>
+      </div>
+    </section>
+
+    <section v-if="currentEntryStep === 3 && !isMobile" class="rain-panel">
+      <div class="rain-head">
+        <div class="rain-head-id">
+          <h2>Rainfall log</h2>
+          <span class="rain-head-sub">{{ selection.shiftType }} shift - {{ dateLabel }}</span>
+        </div>
+        <div class="rain-metrics">
+          <div class="rain-metric">
+            <b class="mono">{{ rainRows.length }}</b>
+            <span>Rows</span>
+          </div>
+          <div class="rain-metric">
+            <b class="mono">{{ rainTotals.rain }}</b>
+            <span>Rain min</span>
+          </div>
+          <div class="rain-metric">
+            <b class="mono">{{ rainTotals.lost }}</b>
+            <span>Lost min</span>
+          </div>
+          <div class="rain-metric" :class="{ alert: rainTotals.alerts > 0 }">
+            <b class="mono">{{ rainTotals.alerts }}</b>
+            <span>Red alert</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="modal-hint">
+        One row per rain spell in one area. Period, Rain duration and Lost time are calculated from the times — set Affect Opt to YES to log the
+        operating time lost. Rows belong to the selected date and shift.
+      </p>
+
+      <div class="rain-scroll">
+        <table class="grid-table rain-table">
+          <thead>
+            <tr>
+              <th class="th-area">Area</th>
+              <th class="th-intensity">Rainfall intensity</th>
+              <th>Start time</th>
+              <th>End time</th>
+              <th>Period</th>
+              <th>Rain duration (min)</th>
+              <th class="rain-group-start">Affect opt</th>
+              <th>Start</th>
+              <th>End</th>
+              <th>Lost time (min)</th>
+              <th>Red alert</th>
+              <th class="th-remark">Remark</th>
+              <th class="th-x" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in rainRows" :key="row.id">
+              <td>
+                <SearchSelect
+                  :model-value="row.areaCode"
+                  :options="rainAreaOptions(row)"
+                  placeholder="Search pit"
+                  empty-text="No pit available"
+                  @change="setRainField(row, 'areaCode', $event)"
+                />
+              </td>
+              <td>
+                <select
+                  class="gt-sel rain-intensity"
+                  :class="`is-${row.intensity.toLowerCase()}`"
+                  :value="row.intensity"
+                  @change="setRainField(row, 'intensity', $event.target.value)"
+                >
+                  <option v-for="level in RAIN_INTENSITIES" :key="level" :value="level">{{ level }}</option>
+                </select>
+              </td>
+              <td>
+                <TimeField
+                  :model-value="row.startTime"
+                  label="Rain start"
+                  title="Set when the rain started"
+                  @change="setRainField(row, 'startTime', $event)"
+                />
+              </td>
+              <td>
+                <TimeField :model-value="row.endTime" label="Rain end" title="Set when the rain stopped" @change="setRainField(row, 'endTime', $event)" />
+              </td>
+              <td class="rain-derived mono">{{ periodLabel(row) || "—" }}</td>
+              <td class="rain-derived mono" :class="{ muted: rainMinutes(row) === 0 }">{{ rainMinutes(row) }}</td>
+              <td class="rain-group-start">
+                <select
+                  class="gt-sel rain-yn"
+                  :class="{ on: row.affectOpt }"
+                  :value="row.affectOpt ? 'YES' : 'NO'"
+                  @change="setRainAffect(row, $event.target.value === 'YES')"
+                >
+                  <option value="NO">NO</option>
+                  <option value="YES">YES</option>
+                </select>
+              </td>
+              <td>
+                <button
+                  class="rain-time-btn mono"
+                  type="button"
+                  :disabled="!row.affectOpt"
+                  :title="row.affectOpt ? 'Set the lost time window' : 'Set Affect opt to YES first'"
+                  @click="openLostTime(row, 'start')"
+                >
+                  {{ row.affectStart || "--:--" }}
+                </button>
+              </td>
+              <td>
+                <button
+                  class="rain-time-btn mono"
+                  type="button"
+                  :disabled="!row.affectOpt"
+                  :title="row.affectOpt ? 'Set the lost time window' : 'Set Affect opt to YES first'"
+                  @click="openLostTime(row, 'end')"
+                >
+                  {{ row.affectEnd || "--:--" }}
+                </button>
+              </td>
+              <!-- Lost-time window itself is keyed in the pop-up below (TimeField there). -->
+              <td class="rain-derived mono" :class="{ muted: lostMinutes(row) === 0 }">{{ lostMinutes(row) }}</td>
+              <td>
+                <select
+                  class="gt-sel rain-yn rain-alert"
+                  :class="{ on: row.redAlert }"
+                  :value="row.redAlert ? 'YES' : 'NO'"
+                  @change="setRainField(row, 'redAlert', $event.target.value === 'YES')"
+                >
+                  <option value="NO">NO</option>
+                  <option value="YES">YES</option>
+                </select>
+              </td>
+              <td class="rain-remark-cell">
+                <input
+                  class="exc-note-input"
+                  type="text"
+                  placeholder="Ground, red alert time, road..."
+                  :value="row.remark"
+                  @change="setRainField(row, 'remark', $event.target.value)"
+                />
+              </td>
+              <td class="gt-x">
+                <button class="gt-del" type="button" aria-label="Delete rainfall row" title="Delete this rainfall row" @click="removeRainRow(row.id)">x</button>
+              </td>
+            </tr>
+            <tr v-if="rainRows.length === 0">
+              <td class="rain-empty" colspan="13">
+                No rainfall logged for this shift. Use "+ Add rainfall row" — it starts on the selected hour's window.
+              </td>
+            </tr>
+          </tbody>
+          <tfoot v-if="rainRows.length > 0">
+            <tr>
+              <td class="tf-label" colspan="5">Totals</td>
+              <td>{{ rainTotals.rain }}</td>
+              <td colspan="3" />
+              <td class="tf-grand">{{ rainTotals.lost }}</td>
+              <td>{{ rainTotals.alerts }}</td>
+              <td colspan="2" />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div v-if="lostTimeDraft && lostTimeRow" class="modal-overlay" @mousedown.self="closeLostTime">
+        <div class="modal lost-time-modal" role="dialog" aria-modal="true" aria-label="Affected operation">
+          <div class="modal-head">
+            <div class="modal-title">
+              <span class="exc mono">Affect operation</span>
+              <span class="chip">{{ lostTimeRow.areaCode || "-" }}</span>
+              <span class="sub">Rain {{ periodLabel(lostTimeRow) || "--:-- - --:--" }} ({{ rainMinutes(lostTimeRow) }} min)</span>
+            </div>
+            <button class="modal-x" type="button" aria-label="Close" @click="closeLostTime">x</button>
+          </div>
+
+          <div class="modal-body">
+            <p class="modal-hint">The stretch of this rain spell that stopped the operation. Lost time = End - Start.</p>
+            <div class="lost-time-fields">
+              <div class="entry-field">
+                <span>Start</span>
+                <TimeField ref="lostStartInput" v-model="lostTimeDraft.start" label="Lost time start" />
+              </div>
+              <div class="entry-field">
+                <span>End</span>
+                <TimeField ref="lostEndInput" v-model="lostTimeDraft.end" label="Lost time end" />
+              </div>
+              <label class="entry-field lost-time-alert">
+                <span>Red alert</span>
+                <select
+                  class="gt-sel rain-yn rain-alert"
+                  :class="{ on: lostTimeDraft.redAlert }"
+                  :value="lostTimeDraft.redAlert ? 'YES' : 'NO'"
+                  @change="lostTimeDraft.redAlert = $event.target.value === 'YES'"
+                >
+                  <option value="NO">NO</option>
+                  <option value="YES">YES</option>
+                </select>
+              </label>
+              <div class="lost-time-result">
+                <b class="mono">{{ lostTimeDraftMinutes }}</b>
+                <span>Lost time (min)</span>
+              </div>
+            </div>
+            <button class="add-row" type="button" @click="useRainWindowForLostTime">= Same as the rain window</button>
+          </div>
+
+          <div class="modal-foot">
+            <span class="foot-note">Nothing is saved until you press Done.</span>
+            <div class="foot-actions">
+              <button class="btn" type="button" @click="closeLostTime">Cancel</button>
+              <button class="btn btn-primary" type="button" @click="saveLostTime">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rain-foot">
+        <button class="add-row" type="button" @click="addRainRow">+ Add rainfall row</button>
+        <span v-if="rainSaveMessage" class="foot-note entry-date-status" :class="rainSaveState">{{ rainSaveMessage }}</span>
+        <span v-else class="foot-note">Entries save automatically.</span>
       </div>
     </section>
 

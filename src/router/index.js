@@ -4,6 +4,7 @@ import { isMobileViewport } from "../composables/useIsMobile.js";
 import Login from "../pages/Login.vue";
 import FleetOverview from "../pages/FleetOverview.vue";
 import AreaProduction from "../pages/AreaProduction.vue";
+import RainfallDashboard from "../pages/RainfallDashboard.vue";
 import DataEntry from "../pages/DataEntry.vue";
 import Settings from "../pages/Settings.vue";
 import Users from "../pages/Users.vue";
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: "/login", name: "login", component: Login, meta: { public: true } },
     { path: "/fleet", name: "fleet", component: FleetOverview },
     { path: "/area", name: "area", component: AreaProduction },
+    { path: "/rainfall", name: "rainfall", component: RainfallDashboard },
     { path: "/entry", name: "entry", component: DataEntry, meta: { adminOnly: true } },
     { path: "/settings", name: "settings", component: Settings, meta: { adminOnly: true } },
     // Employee logins / Users management — its own page for the manager role
@@ -24,6 +26,7 @@ const router = createRouter({
     { path: "/manager", name: "manager", component: Users, meta: { managerOnly: true } },
     // Old per-page links now live as tabs under Settings — keep them working.
     { path: "/mining", redirect: "/settings?tab=mining" },
+    { path: "/apparea", redirect: "/settings?tab=apparea" },
     { path: "/material-routes", redirect: "/settings?tab=routes" },
     { path: "/excavator", redirect: "/settings?tab=excavator" },
     { path: "/dumpmodel", redirect: "/settings?tab=dumpmodel" },

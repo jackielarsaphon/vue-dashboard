@@ -33,6 +33,11 @@ export function buildDemoStore() {
   const mining_areas = areaCodes.map((code) => ({ id: uuid(), code, name: null, active: true, created_at: nowIso() }));
   const areaId = Object.fromEntries(mining_areas.map((a) => [a.code, a.id]));
 
+  // Pit-level areas (Settings → App Area) — the Rainfall step's Area dropdown.
+  const app_areas = ["Copper Pit", "Gold Pit"].map((name) => ({
+    id: uuid(), name, active: true, created_at: nowIso(), updated_at: nowIso(),
+  }));
+
   const materialsSeed = [
     ["WNAF", true], ["WPAF", true], ["AOLL", false], ["APMW", false],
   ];
@@ -138,6 +143,21 @@ export function buildDemoStore() {
   const production_entries = [];
   const production_plans = [];
   const area_targets = [];
+  const rainfall_logs = [];
+
+  // A morning rain spell for the Rainfall step / dashboard: [area, intensity,
+  // start, end, affected, remark]. Lost time mirrors the rain window when the
+  // spell stopped the operation, like the Rainfall sheet.
+  const rainSeed = [
+    ["Copper Pit", "Heavy", "09:00", "10:00", false, false, ""],
+    ["Copper Pit", "Heavy", "10:00", "11:00", true, true, "ฝนเริ่มตกหนักทางลื่น มี Red Alert 10:35 AM"],
+    ["Copper Pit", "Moderate", "11:00", "12:00", true, true, "ฝนตกปลานกาง.ทางลื่น Red Alert หยุด 11:25 AM"],
+    ["Copper Pit", "Clear", "12:00", "13:00", true, false, "ฝนหยุดตก แต่ถนนลื่น+เดียงทาง"],
+    ["Gold Pit", "Heavy", "09:00", "10:00", false, false, ""],
+    ["Gold Pit", "Heavy", "10:00", "11:00", false, false, ""],
+    ["Gold Pit", "Moderate", "11:00", "12:00", false, false, ""],
+    ["Gold Pit", "Clear", "12:00", "13:00", false, false, ""],
+  ];
 
   const now = Date.now();
   // Real wall-clock start of a slot — night hours 0–5 fall on the morning after
@@ -200,11 +220,22 @@ export function buildDemoStore() {
     Object.entries(areaTargetSeed).forEach(([area, t]) => {
       area_targets.push({ id: uuid(), shift_id: dayShift.id, mining_area_id: areaId[area], target_tonnes: t });
     });
+    // The rain spell sits on the Day shift (09:00–13:00), so the Rainfall dashboard
+    // has something to report for every demo date.
+    rainSeed.forEach(([area, intensity, start, end, affected, alert, remark]) => {
+      rainfall_logs.push({
+        id: uuid(), shift_id: dayShift.id, area_code: area, intensity,
+        start_time: start, end_time: end,
+        affect_opt: affected, affect_start: affected ? start : null, affect_end: affected ? end : null,
+        red_alert: alert, remark: remark || null, created_at: nowIso(), updated_at: nowIso(),
+      });
+    });
   }
 
   return {
     users,
     mining_areas,
+    app_areas,
     materials,
     dumping_areas,
     truck_models,
@@ -213,6 +244,7 @@ export function buildDemoStore() {
     shifts,
     shift_kpi_targets: [],
     area_targets,
+    rainfall_logs,
     production_plans,
     production_entries,
   };
