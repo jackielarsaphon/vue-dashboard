@@ -48,6 +48,23 @@ const fmtWeek = (iso) => {
   return d && m && y ? `${d}/${m}/${y}` : iso;
 };
 
+// A week shown as its full Sat–Fri span ("25/07 – 31/07/2026") rather than just its
+// start date. A factor is stored per week, so labelling a row with the Saturday alone
+// reads as the wrong date when the day you picked is any other day of that week —
+// the span makes it obvious the chosen day belongs to this row. The year is printed
+// once unless the week crosses into the next one.
+const fmtWeekRange = (weekStart) => {
+  const start = new Date(`${weekStart}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return weekStart;
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const dd = (d) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const head = start.getFullYear() === end.getFullYear() ? dd(start) : `${dd(start)}/${start.getFullYear()}`;
+  return `${head} – ${dd(end)}/${end.getFullYear()}`;
+};
+// True for the history row that contains the date picked in the top bar.
+const isSelectedWeek = (weekStart) => weekStart === selectedWeekStart.value;
+
 // Effective factor for the selected date's week (the value the dashboards use for
 // that date's data).
 const currentFactor = (code) => factorFor(code, selectedIso.value);
@@ -164,7 +181,7 @@ const addWeek = async () => {
   }
   const week = newWeekStart.value;
   await setWeekFactor(factorCode.value, week, value);
-  factorMessage.value = `Saved ${value.toFixed(2)} t/trip for week of ${fmtWeek(week)}`;
+  factorMessage.value = `Saved ${value.toFixed(2)} t/trip for the week ${fmtWeekRange(week)}`;
   newFactor.value = "";
 };
 
@@ -180,7 +197,7 @@ const confirmDeleteWeek = async () => {
   pendingWeekDelete.value = null;
   if (!weekStart) return;
   await setWeekFactor(factorCode.value, weekStart, "");
-  factorMessage.value = `Removed week of ${fmtWeek(weekStart)}`;
+  factorMessage.value = `Removed the week ${fmtWeekRange(weekStart)}`;
 };
 </script>
 
@@ -194,7 +211,7 @@ const confirmDeleteWeek = async () => {
         <h1>Dump model</h1>
         <p>
           Register dump (truck) models and their weekly TD&amp;MVDC factor (tonnes per trip) used to convert trips to tonnes.
-          Factors follow the date picked in the top bar — showing the week of <b>{{ fmtWeek(selectedWeekStart) }}</b>.
+          Factors follow the date picked in the top bar — showing the week <b>{{ fmtWeekRange(selectedWeekStart) }}</b>.
         </p>
       </div>
       <div class="mining-total mono">{{ rows.length }}</div>
@@ -217,7 +234,7 @@ const confirmDeleteWeek = async () => {
           <div class="mining-row mining-row-head">
             <span>Dump model</span>
             <span>Company</span>
-            <span>Factor — week of {{ fmtWeek(selectedWeekStart) }}</span>
+            <span>Factor — week {{ fmtWeekRange(selectedWeekStart) }}</span>
             <span>Action</span>
           </div>
           <div v-for="row in rows" :key="row.id" class="mining-row">
@@ -301,12 +318,15 @@ const confirmDeleteWeek = async () => {
 
           <div class="factor-history">
             <div class="factor-row factor-row-head">
-              <span>Week starting</span>
+              <span>Week (Sat–Fri)</span>
               <span>Factor (t/trip)</span>
               <span />
             </div>
-            <div v-for="rec in factorHistory" :key="rec.week_start" class="factor-row">
-              <span class="mono">{{ fmtWeek(rec.week_start) }}</span>
+            <div v-for="rec in factorHistory" :key="rec.week_start" class="factor-row" :class="{ on: isSelectedWeek(rec.week_start) }">
+              <span class="factor-week">
+                <span class="mono">{{ fmtWeekRange(rec.week_start) }}</span>
+                <span v-if="isSelectedWeek(rec.week_start)" class="factor-week-tag">{{ fmtWeek(selectedIso) }}</span>
+              </span>
               <input
                 class="mining-input mono"
                 type="number"
@@ -347,7 +367,7 @@ const confirmDeleteWeek = async () => {
         </div>
         <div class="modal-foot">
           <span class="foot-note">
-            Week start is the Saturday of the chosen week — saves to <b class="mono">{{ fmtWeek(newWeekStart) }}</b>.
+            Weeks run Saturday–Friday — saves to the week <b class="mono">{{ fmtWeekRange(newWeekStart) }}</b>.
           </span>
           <div class="foot-actions">
             <button class="btn btn-primary" type="button" @click="closeFactors">Done</button>
@@ -370,7 +390,7 @@ const confirmDeleteWeek = async () => {
     <ConfirmDialog
       :open="pendingWeekDelete !== null"
       title="Remove weekly factor?"
-      :message="pendingWeekDelete ? `Remove the factor for the week of ${fmtWeek(pendingWeekDelete)}? That week will fall back to the most recent earlier week.` : ''"
+      :message="pendingWeekDelete ? `Remove the factor for the week ${fmtWeekRange(pendingWeekDelete)}? That week will fall back to the most recent earlier week.` : ''"
       confirm-label="Remove"
       cancel-label="Cancel"
       danger
@@ -415,6 +435,29 @@ const confirmDeleteWeek = async () => {
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+.factor-week {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* The week containing the date picked in the top bar, tagged with that date so the
+   row it belongs to is unmistakable. */
+.factor-row.on .factor-week .mono {
+  color: var(--ink);
+  font-weight: 600;
+}
+.factor-week-tag {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  color: var(--ink-2);
+  white-space: nowrap;
 }
 .factor-add {
   display: grid;
