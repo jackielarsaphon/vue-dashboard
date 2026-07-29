@@ -12,11 +12,13 @@ const daysAgoIso = (offset) => {
   d.setDate(d.getDate() - offset);
   return isoOf(d);
 };
-// Monday (ISO week start) of the week containing dateIso — must match
-// useTruckFactors.weekStartOf so seeded weekly factors line up at runtime.
+// Saturday (week start) of the week containing dateIso — must match
+// useTruckFactors.weekStartOf (weeks run Sat–Fri) so seeded weekly factors land on
+// the same weeks the app reads back. With a Monday rule they were rounded down to
+// the previous Saturday at read time, i.e. shifted into the following week.
 const weekStartOf = (dateIso) => {
   const d = new Date(`${dateIso}T00:00:00`);
-  const dow = (d.getDay() + 6) % 7; // 0 = Monday … 6 = Sunday
+  const dow = (d.getDay() + 1) % 7; // 0 = Saturday … 6 = Friday
   d.setDate(d.getDate() - dow);
   return isoOf(d);
 };
