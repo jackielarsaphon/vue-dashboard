@@ -12,16 +12,6 @@ const daysAgoIso = (offset) => {
   d.setDate(d.getDate() - offset);
   return isoOf(d);
 };
-// Saturday (week start) of the week containing dateIso — must match
-// useTruckFactors.weekStartOf (weeks run Sat–Fri) so seeded weekly factors land on
-// the same weeks the app reads back. With a Monday rule they were rounded down to
-// the previous Saturday at read time, i.e. shifted into the following week.
-const weekStartOf = (dateIso) => {
-  const d = new Date(`${dateIso}T00:00:00`);
-  const dow = (d.getDay() + 1) % 7; // 0 = Saturday … 6 = Friday
-  d.setDate(d.getDate() - dow);
-  return isoOf(d);
-};
 const TONNES_PER_TRIP = 43.7;
 // How many days of history to seed (so the date picker can browse back).
 const DEMO_DAYS = 14;
@@ -58,30 +48,29 @@ export function buildDemoStore() {
   const truckId = Object.fromEntries(truck_models.map((t) => [t.code, t.id]));
   const truckCapacity = Object.fromEntries(truck_models.map((t) => [t.code, t.capacity_tonnes ?? TONNES_PER_TRIP]));
 
-  // ---- weekly factor history (truck_model_factors) ----
-  // TD&MVDC factor changes each week, so seed three weeks of history for the
+  // ---- effective-date factor history (truck_model_factors) ----
+  // Seed three dated values for the
   // models that have measured values (the SKT90S/SKT105S columns from the source
-  // sheet). The newest week matches capacity_tonnes; older weeks differ so the
+  // sheet). The newest date matches capacity_tonnes; older dates differ so the
   // history view and historical tonnes are visibly distinct.
-  const factorWeeks = [
-    [weekStartOf(daysAgoIso(14)), { SKT90S: 41.77, SKT105S: 49.1 }],
-    [weekStartOf(daysAgoIso(7)), { SKT90S: 43.86, SKT105S: 51.56 }],
-    [weekStartOf(daysAgoIso(0)), { SKT90S: 41.67, SKT105S: 48.98 }],
+  const factorDates = [
+    [daysAgoIso(14), { SKT90S: 41.77, SKT105S: 49.1 }],
+    [daysAgoIso(7), { SKT90S: 43.86, SKT105S: 51.56 }],
+    [daysAgoIso(0), { SKT90S: 41.67, SKT105S: 48.98 }],
   ];
   const truck_model_factors = [];
-  factorWeeks.forEach(([week_start, byCode]) => {
+  factorDates.forEach(([week_start, byCode]) => {
     Object.entries(byCode).forEach(([code, factor]) => {
       truck_model_factors.push({ id: uuid(), truck_model_id: truckId[code], week_start, factor, created_at: nowIso(), updated_at: nowIso() });
     });
   });
 
-  // Effective seed factor for a truck on a date: latest weekly record on/before
-  // that date's week, else the model's capacity_tonnes fallback. Mirrors
+  // Effective seed factor for a truck on a date: latest dated record on/before
+  // that exact date, else the model's capacity_tonnes fallback. Mirrors
   // useTruckFactors.factorFor so seeded tonnes match what the dashboard computes.
   const factorForSeed = (code, dateIso) => {
-    const ws = weekStartOf(dateIso);
     const recs = truck_model_factors
-      .filter((row) => row.truck_model_id === truckId[code] && row.week_start <= ws)
+      .filter((row) => row.truck_model_id === truckId[code] && row.week_start <= dateIso)
       .sort((a, b) => a.week_start.localeCompare(b.week_start));
     return recs.length ? recs[recs.length - 1].factor : truckCapacity[code];
   };

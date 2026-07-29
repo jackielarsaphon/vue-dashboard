@@ -2,13 +2,11 @@ import { computed, ref } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
 import { useTruckModelsStore } from "../stores/truckModelsStore";
 
-// Weekly tonnes/trip factors (the TD&MVDC value multiplied with trips). The
-// factor changes every week, so it's stored as effective-dated history in the
-// public.truck_model_factors table (one row per truck model per week_start =
-// the Saturday of the week). For any date we use the latest factor whose week
-// is on/before that date's week (carry-forward), so past weeks keep their own
-// factor even after the current one is changed. Falls back to the truck model's
-// capacity_tonnes, then DEFAULT_TONNES_PER_TRIP, when no weekly record exists.
+// Effective-dated tonnes/trip factors (the TD&MVDC value multiplied with trips).
+// The legacy database column is named `week_start`, but it stores the exact date
+// chosen by the user. For any date we use the latest factor whose effective date
+// is on/before it (carry-forward), so historical tonnes stay unchanged. Falls
+// back to capacity_tonnes, then DEFAULT_TONNES_PER_TRIP, when no record exists.
 //
 // Module-level singleton (same convention as useKpiTargets / useAreaTargets).
 
@@ -19,15 +17,6 @@ const truckModelsStore = useTruckModelsStore();
 // All truck_model_factors rows: { id, truck_model_id, week_start, factor }.
 const rows = ref([]);
 const loading = ref(false);
-
-// Saturday (week start) of the week containing `dateIso` (yyyy-mm-dd), as
-// yyyy-mm-dd. Weeks run Sat–Fri.
-export const weekStartOf = (dateIso) => {
-  const d = new Date(`${dateIso}T00:00:00`);
-  const dow = (d.getDay() + 1) % 7; // 0 = Saturday … 6 = Friday
-  d.setDate(d.getDate() - dow);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
 
 const load = async () => {
   loading.value = true;
@@ -54,14 +43,12 @@ const historyByCode = computed(() => {
 });
 
 // Effective tonnes/trip factor for a truck model on a given date: the latest
-// weekly record with week_start <= that date's week, else capacity_tonnes, else
-// the default.
+// dated record on/before that exact date, else capacity_tonnes, else the default.
 export const factorFor = (code, dateIso) => {
-  const ws = weekStartOf(dateIso);
   const list = historyByCode.value[code] || [];
   let chosen = null;
   for (const rec of list) {
-    if (rec.week_start <= ws) chosen = rec;
+    if (rec.week_start <= dateIso) chosen = rec;
     else break;
   }
   if (chosen) return chosen.factor;
@@ -69,23 +56,23 @@ export const factorFor = (code, dateIso) => {
   return cap > 0 ? cap : DEFAULT_TONNES_PER_TRIP;
 };
 
-// Full weekly history for a model, newest week first (for the history view).
+// Full effective-date history for a model, newest date first.
 export const historyFor = (code) => [...(historyByCode.value[code] || [])].reverse();
 
-// Set (or clear) a truck model's factor for a given week. Blank / non-positive
-// removes that week's override (so it carries forward the previous week again).
-export const setWeekFactor = async (code, weekStart, rawValue) => {
+// Set (or clear) a factor for an exact effective date. The `week_start` column
+// name remains for compatibility with the existing database.
+export const setFactorForDate = async (code, effectiveDate, rawValue) => {
   const modelId = modelIdByCode.value[code];
   if (!modelId) return false;
   const num = rawValue === "" || rawValue == null ? null : Number(rawValue);
   const factor = num != null && Number.isFinite(num) && num > 0 ? num : null;
 
   if (factor == null) {
-    await supabase.from("truck_model_factors").delete().eq("truck_model_id", modelId).eq("week_start", weekStart);
+    await supabase.from("truck_model_factors").delete().eq("truck_model_id", modelId).eq("week_start", effectiveDate);
   } else {
     await supabase
       .from("truck_model_factors")
-      .upsert({ truck_model_id: modelId, week_start: weekStart, factor }, { onConflict: "truck_model_id,week_start" });
+      .upsert({ truck_model_id: modelId, week_start: effectiveDate, factor }, { onConflict: "truck_model_id,week_start" });
   }
   await load();
   return true;
@@ -94,9 +81,8 @@ export const setWeekFactor = async (code, weekStart, rawValue) => {
 export const useTruckFactors = () => ({
   rows,
   loading,
-  weekStartOf,
   factorFor,
   historyFor,
-  setWeekFactor,
+  setFactorForDate,
   reload: load,
 });

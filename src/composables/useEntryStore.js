@@ -11,9 +11,9 @@ import { useMiningAreasStore } from "../stores/miningAreasStore";
 import { useMaterialsStore } from "../stores/materialsStore";
 import { useDumpingAreasStore } from "../stores/dumpingAreasStore";
 import { useTruckModelsStore } from "../stores/truckModelsStore";
-import { factorFor, setWeekFactor, weekStartOf, DEFAULT_TONNES_PER_TRIP } from "./useTruckFactors.js";
+import { factorFor, setFactorForDate, DEFAULT_TONNES_PER_TRIP } from "./useTruckFactors.js";
 
-// Per-model tonnes/trip factors are now weekly (effective-dated) — see
+// Per-model tonnes/trip factors are effective-dated — see
 // useTruckFactors.js. DEFAULT_TONNES_PER_TRIP is the final fallback.
 export { DEFAULT_TONNES_PER_TRIP };
 export const BCM_PER_TRIP = 25;
@@ -106,11 +106,10 @@ const truckModels = computed(() => {
     return ai - bi;
   });
 });
-// tonnes/trip for a truck-model code, using the factor that was in effect for
-// the currently selected date's week (date-aware, so past weeks keep their own
-// factor). Sourced from the weekly factor history (useTruckFactors).
+// tonnes/trip for a truck-model code, using the factor that was in effect on
+// the exact selected date. Sourced from the effective-date factor history.
 export const tonnesPerTripFor = (code) => factorFor(code, selection.date);
-// tonnes for one entry row, using its truck model's factor for the selected week.
+// tonnes for one entry row, using its truck model's factor for the selected date.
 export const rowTonnes = (row) => rowTotal(row) * factorFor(row.model, selection.date);
 
 export const isWaste = (materialCode) => {
@@ -1132,11 +1131,9 @@ const setRowTrips = async (placementId, rowId, rawValue) => {
   return true;
 };
 
-// Set a truck model's tonnes/trip factor for the selected date's WEEK (writes
-// the weekly factor history in truck_model_factors — no schema change to existing
-// tables). Editable from Data entry as well as the Dump model page. Other weeks
-// keep their own factor, so past dashboards stay unchanged.
-const setTruckFactor = (code, rawValue) => setWeekFactor(code, weekStartOf(selection.date), rawValue);
+// Set a truck model's tonnes/trip factor for the exact selected date. The newest
+// dated value carries forward until another date is added.
+const setTruckFactor = (code, rawValue) => setFactorForDate(code, selection.date, rawValue);
 
 // Per-hour Production note for a placement at the current (date, shift, hour). The
 // note is hour-scoped, so a new hour starts blank.

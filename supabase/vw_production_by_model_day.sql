@@ -5,12 +5,12 @@
 -- =============================================================================
 -- 1 แถว = (วันที่ + รุ่นรถ) หนึ่งคู่ พร้อม:
 --   total_trips     = ผลรวม production_entries.trips
---   factor          = ตัน/เที่ยว ของสัปดาห์นั้น (carry-forward เหมือนแดชบอร์ด)
+--   factor          = ตัน/เที่ยวที่มีผลในวันที่นั้น (carry-forward เหมือนแดชบอร์ด)
 --   tonnes_total    = total_trips × factor  ← ตัวเลขที่แดชบอร์ดแสดง
 --   tonnes_stored   = ผลรวม production_entries.tonnes (ค่าตอนกรอก) ไว้เทียบ
 --
--- factor: หยิบ truck_model_factors ของสัปดาห์ที่ใช้ได้ล่าสุด (สัปดาห์เริ่มวันเสาร์
--- แบบเดียวกับ weekStartOf ในแอป). ถ้าไม่มี → fallback เป็น capacity_tonnes แล้ว
+-- factor: หยิบ truck_model_factors วันที่ล่าสุดที่ไม่เกิน shift_date.
+-- ถ้าไม่มี → fallback เป็น capacity_tonnes แล้ว
 -- 43.7 (= DEFAULT_TONNES_PER_TRIP) ให้ตรงกับ factorFor() ทุกกรณี.
 -- =============================================================================
 
@@ -26,8 +26,8 @@ with rows as (
       (select tmf.factor
          from public.truck_model_factors tmf
         where tmf.truck_model_id = pe.truck_model_id
-          -- วันเสาร์ต้นสัปดาห์ของ shift_date (สัปดาห์รันเสาร์–ศุกร์)
-          and tmf.week_start <= (s.shift_date - ((extract(dow from s.shift_date)::int + 1) % 7))::date
+          -- week_start is a legacy column name; it stores the exact effective date.
+          and tmf.week_start <= s.shift_date
         order by tmf.week_start desc
         limit 1),
       nullif(tm.capacity_tonnes, 0),

@@ -67,7 +67,7 @@ create table if not exists public.dumping_areas (
 );
 
 -- รุ่นรถบรรทุก + ความจุ (ตัน) สำหรับคำนวณ tonnes = trips * capacity.
--- capacity_tonnes ใช้เป็น factor เริ่มต้น/สำรอง เมื่อยังไม่มีค่ารายสัปดาห์ใน
+-- capacity_tonnes ใช้เป็น factor เริ่มต้น/สำรอง เมื่อยังไม่มีค่าตามวันที่ใน
 -- truck_model_factors (ดูด้านล่าง).
 create table if not exists public.truck_models (
   id              uuid primary key default gen_random_uuid(),
@@ -78,14 +78,14 @@ create table if not exists public.truck_models (
   created_at      timestamptz not null default now()
 );
 
--- ค่า factor (ตัน/เที่ยว) ราย "สัปดาห์" ต่อรุ่นรถ — TD&MVDC เปลี่ยนทุกสัปดาห์ จึง
--- เก็บเป็นประวัติแบบ effective-dated: week_start = วันจันทร์ของสัปดาห์ที่ค่าเริ่มมีผล.
--- แดชบอร์ดเลือก factor ของสัปดาห์ที่ตรงกับวันที่ของข้อมูล (carry-forward ค่าล่าสุด
--- ที่ week_start <= สัปดาห์นั้น) เพื่อให้ตันย้อนหลังคงเดิมแม้เปลี่ยน factor ปัจจุบัน.
+-- ค่า factor (ตัน/เที่ยว) ตามวันที่ต่อรุ่นรถ เก็บเป็นประวัติแบบ effective-dated.
+-- ชื่อคอลัมน์ week_start คงไว้เพื่อรองรับฐานข้อมูลเดิม แต่ค่าเป็นวันที่ที่ผู้ใช้เลือก
+-- โดยตรง แดชบอร์ด carry-forward ค่าล่าสุดที่ week_start <= วันที่ของข้อมูล.
 -- ตารางนี้ "เพิ่มใหม่" ไม่กระทบ truck_models / production_entries เดิม.
 create table if not exists public.truck_model_factors (
   id             uuid primary key default gen_random_uuid(),
   truck_model_id uuid not null references public.truck_models (id) on delete cascade,
+  -- Legacy column name: stores the exact effective date selected by the user.
   week_start     date not null,
   factor         numeric(10, 2) not null check (factor > 0),
   created_at     timestamptz not null default now(),
