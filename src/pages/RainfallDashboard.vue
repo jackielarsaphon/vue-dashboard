@@ -4,12 +4,10 @@ import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useAppAreas } from "../composables/useAppAreas.js";
 import { useRainfallLog, periodLabel, rainMinutes, lostMinutes } from "../composables/useRainfallLog.js";
-import { useRainfallExport } from "../composables/useRainfallExport.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import { useDownloadImage } from "../composables/useDownloadImage.js";
 import TopBar from "../components/common/TopBar.vue";
 import DownloadImageButton from "../components/common/DownloadImageButton.vue";
-import ExcelExportButton from "../components/common/ExcelExportButton.vue";
 import TweaksPanel from "../components/common/TweaksPanel.vue";
 import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
@@ -39,8 +37,8 @@ const { rowsForDate, reload: reloadRainfall } = useRainfallLog();
 useLiveRefresh([reloadRainfall]);
 
 const { dashRef, downloading, downloadImage } = useDownloadImage(() => `rainfall-${selection.date}.png`);
-// Same report as an .xlsx — one tab per pit, laid out like the source sheet.
-const { exporting: exportingRainfall, exportExcel: exportRainfallExcel } = useRainfallExport();
+// The .xlsx of the same data is offered where it's keyed — Data entry step 3 —
+// rather than a second time here.
 
 const dateLabel = computed(() => {
   const [y, m, d] = String(selection.date).split("-");
@@ -126,7 +124,6 @@ function buildChart(rows) {
     <TopBar subtitle="Rainfall" />
 
     <div class="dash-toolbar no-capture">
-      <ExcelExportButton :busy="exportingRainfall" @click="exportRainfallExcel" />
       <DownloadImageButton :downloading="downloading" @click="downloadImage" />
     </div>
 
