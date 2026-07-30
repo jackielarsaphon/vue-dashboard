@@ -32,6 +32,7 @@ const router = createRouter({
     { path: "/dumpmodel", redirect: "/settings?tab=dumpmodel" },
     { path: "/location", redirect: "/settings?tab=location" },
     { path: "/backup", redirect: "/settings?tab=backup" },
+    { path: "/monthly-backup", redirect: "/settings?tab=monthlybackup" },
     { path: "/users", redirect: "/manager" },
     { path: "/:pathMatch(.*)*", redirect: "/fleet" },
   ],

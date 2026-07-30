@@ -9,6 +9,7 @@ import Excavator from "./Excavator.vue";
 import DumpModel from "./DumpModel.vue";
 import DumpLocation from "./DumpLocation.vue";
 import BackupData from "./BackupData.vue";
+import MonthlyBackup from "./MonthlyBackup.vue";
 
 // Settings groups the master-data pages behind one nav button. Each page is
 // rendered embedded (without its own TopBar / full-page shell) under the tab bar.
@@ -23,6 +24,7 @@ const tabs = [
   { key: "dumpmodel", label: "Dump model", comp: DumpModel },
   { key: "location", label: "Locations", comp: DumpLocation },
   { key: "backup", label: "Backup data", comp: BackupData },
+  { key: "monthlybackup", label: "Monthly backup", comp: MonthlyBackup },
 ];
 
 const route = useRoute();
