@@ -168,31 +168,11 @@
   font-size: 12px;
   color: var(--ink-2);
 }
-.rr-summary-metrics {
-  display: flex;
-  align-items: flex-end;
-  gap: 22px;
-  flex-wrap: wrap;
+.rr-summary-clock {
+  width: fit-content;
+  flex: 0 0 auto;
 }
-.rr-metric {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.1;
-}
-.rr-metric b {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.rr-metric span {
-  margin-top: 3px;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
+.rr-summary-clock .kpi-cell { padding-inline: 18px; }
 .rr-pits {
   display: flex;
   flex-direction: column;
@@ -352,8 +332,6 @@ table.rr-table tfoot td.rr-tf-label {
 }
 @media (max-width: 640px) {
   .rr-summary { align-items: flex-start; }
-  .rr-summary-metrics { gap: 16px; }
-  .rr-metric b { font-size: 18px; }
   /* Keep the live mobile view readable; the image-export clone removes this
      minimum width so the complete sheet still appears in one downloaded image. */
   table.rr-table { min-width: 760px; }

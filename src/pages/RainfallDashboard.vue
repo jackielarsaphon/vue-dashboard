@@ -44,6 +44,13 @@ const dateLabel = computed(() => {
   const [y, m, d] = String(selection.date).split("-");
   return d && m && y ? `${Number(d)}/${Number(m)}/${y}` : selection.date;
 });
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const clockDate = computed(() => {
+  const [y, m, d] = String(selection.date).split("-");
+  const month = MONTHS[Number(m) - 1];
+  return d && month && y ? `${Number(d)} ${month}` : "";
+});
+const clockRange = computed(() => (selection.shiftType === "Night" ? "18:00-06:00" : "06:00-18:00"));
 
 // Each pit gets its own header colour, cycling this palette — the sheet colours the
 // first pit's header dark red and the second gold. Theme variables, so both themes work.
@@ -69,16 +76,6 @@ const pits = computed(() => {
     return { name, color: PIT_COLORS[index % PIT_COLORS.length], rows, totals, chart: buildChart(rows) };
   });
 });
-
-const dayTotals = computed(() =>
-  pits.value.reduce(
-    (acc, pit) => ({
-      rain: acc.rain + pit.totals.rain,
-      alertDuration: acc.alertDuration + pit.totals.alertDuration,
-    }),
-    { rain: 0, alertDuration: 0 },
-  ),
-);
 
 // --- chart ------------------------------------------------------------------
 // Grouped bars per period: Rain duration (blue) beside Red alert duration (red). The viewBox
@@ -139,14 +136,10 @@ function buildChart(rows) {
         <h1>Rainfall record</h1>
         <span class="rr-summary-sub mono">Date : {{ dateLabel }}</span>
       </div>
-      <div class="rr-summary-metrics">
-        <div class="rr-metric">
-          <b class="mono">{{ dayTotals.rain }}</b>
-          <span>Rain duration (min)</span>
-        </div>
-        <div class="rr-metric">
-          <b class="mono">{{ dayTotals.alertDuration }}</b>
-          <span>Red alert duration (min)</span>
+      <div class="kpi kpi-unified rr-summary-clock">
+        <div class="kpi-cell kpi-cell-clock">
+          <span class="kpi-cell-date">{{ clockDate }}</span>
+          <span class="kpi-cell-hour mono">{{ clockRange }}</span>
         </div>
       </div>
     </section>
