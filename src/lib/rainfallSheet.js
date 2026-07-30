@@ -1,40 +1,56 @@
 import { STYLE } from "./xlsx.js";
 
-// Sheet layout for the rainfall export — one worksheet per pit, laid out like the
-// source Rainfall sheet (Period · Rain Duration · Affect operation · Lost Time
-// Operation · Red Alert · Remark) plus the Shift and Rainfall intensity the app
-// also records, and a totals row.
+// Sheet layout for the rainfall export — ONE sheet holding every pit's rows for the
+// date, in the same shape as the source Rainfall sheet:
+//
+//   Area | Rainfall Intensity | Start Time | End Time | Period | Rain Duration (Min)
+//        | Affect Opt | Start | End | Lost time Duration (Min) | Red Alert | Remark
+//
+// with the gold header band and its colour coding (Heavy / YES red, Moderate peach,
+// Clear / NO grey). A Shift column trails the twelve so rows from the two shifts of
+// one date stay distinguishable — the source sheet is one shift per page.
 //
 // Pure formatting: callers hand over plain records (see useRainfallExport), so this
 // module has no Vue / Supabase dependency and can be exercised on its own — the same
 // split tripReportSheet.js uses.
 
 const COLUMNS = [
-  { title: "Shift", width: 9 },
-  { title: "Period", width: 14 },
+  { title: "Area", width: 16 },
   { title: "Rainfall Intensity", width: 17 },
+  { title: "Start Time", width: 11 },
+  { title: "End Time", width: 11 },
+  { title: "Period", width: 14 },
   { title: "Rain Duration (Min)", width: 18 },
-  { title: "Affect operation", width: 16 },
-  { title: "Lost Time Operation (Min)", width: 22 },
+  { title: "Affect Opt", width: 11 },
+  { title: "Start", width: 10 },
+  { title: "End", width: 10 },
+  { title: "Lost time Duration (Min)", width: 21 },
   { title: "Red Alert", width: 11 },
-  { title: "Remark", width: 46 },
+  { title: "Remark", width: 48 },
+  { title: "Shift", width: 8 },
 ];
-const LAST_COL = String.fromCharCode(64 + COLUMNS.length); // "H"
-const HEADER_ROW = 4; // title, date, blank, header
 
 export const dateLabelOf = (iso) => {
   const [y, m, d] = String(iso).split("-");
   return d && m && y ? `${Number(d)}/${Number(m)}/${y}` : String(iso);
 };
 
-// Excel forbids : \ / ? * [ ] in a tab name and caps it at 31 characters.
-export const sheetName = (name, index) => {
-  const safe = String(name || "").replace(/[:\\/?*[\]]/g, " ").trim();
-  return (safe || `Pit ${index + 1}`).slice(0, 31);
+// Excel forbids : \ / ? * [ ] in a tab name and caps it at 31 characters, so the
+// date goes in with dashes.
+export const sheetName = (dateIso) => `Rainfall ${dateLabelOf(dateIso).replace(/\//g, "-")}`.slice(0, 31);
+
+const INTENSITY_STYLE = {
+  Heavy: STYLE.PILL_RED,
+  Moderate: STYLE.PILL_PEACH,
+  Light: STYLE.PILL_PEACH,
+  Clear: STYLE.PILL_MUTED,
 };
 
-// records: [{ shift, period, intensity, rainMin, affect, lostMin, redAlert, remark }]
-export const buildRainfallSheet = ({ pit, records = [], dateIso, index = 0 }) => {
+// records: [{ area, intensity, start, end, period, rainMin, affect, lostStart,
+//             lostEnd, lostMin, redAlert, remark, shift }]
+// Cells the source sheet leaves empty (the lost-time window of an unaffected spell)
+// stay empty here too, rather than reading as a real 0.
+export const buildRainfallSheet = ({ records = [], dateIso }) => {
   const totals = records.reduce(
     (acc, r) => ({
       rain: acc.rain + (Number(r.rainMin) || 0),
@@ -44,52 +60,40 @@ export const buildRainfallSheet = ({ pit, records = [], dateIso, index = 0 }) =>
     { rain: 0, lost: 0, alerts: 0 },
   );
 
-  const rows = [
-    [{ v: `Rainfall Record — ${pit}`, s: STYLE.TITLE }],
-    [{ v: `Date : ${dateLabelOf(dateIso)}`, s: STYLE.DEFAULT }],
-    [],
-    COLUMNS.map((col) => ({ v: col.title, s: STYLE.HEADER })),
-  ];
+  const rows = [COLUMNS.map((col) => ({ v: col.title, s: STYLE.HEADER_GOLD }))];
 
   records.forEach((r) => {
     rows.push([
-      { v: r.shift || "", s: STYLE.LABEL },
+      { v: r.area || "", s: STYLE.LABEL },
+      { v: r.intensity || "", s: INTENSITY_STYLE[r.intensity] ?? STYLE.LABEL },
+      { v: r.start || "", s: STYLE.RIGHT },
+      { v: r.end || "", s: STYLE.RIGHT },
       { v: r.period || "", s: STYLE.LABEL },
-      { v: r.intensity || "", s: STYLE.LABEL },
-      { v: Number(r.rainMin) || 0, t: "n", s: STYLE.NUM },
-      { v: r.affect ? "YES" : "NO", s: STYLE.LABEL },
-      { v: Number(r.lostMin) || 0, t: "n", s: STYLE.NUM },
-      { v: r.redAlert ? "YES" : "", s: STYLE.LABEL },
-      { v: r.remark || "", s: STYLE.LABEL },
+      { v: Number(r.rainMin) || 0, t: "n", s: STYLE.RIGHT },
+      { v: r.affect ? "YES" : "NO", s: r.affect ? STYLE.PILL_RED : STYLE.PILL_MUTED },
+      { v: r.affect ? r.lostStart || "" : "", s: STYLE.RIGHT },
+      { v: r.affect ? r.lostEnd || "" : "", s: STYLE.RIGHT },
+      r.affect ? { v: Number(r.lostMin) || 0, t: "n", s: STYLE.RIGHT } : { v: "", s: STYLE.RIGHT },
+      { v: r.redAlert ? "YES" : "NO", s: r.redAlert ? STYLE.PILL_RED : STYLE.PILL_MUTED },
+      { v: r.remark || "", s: STYLE.LEFT },
+      { v: r.shift || "", s: STYLE.LABEL },
     ]);
   });
 
   if (records.length) {
-    rows.push([
-      { v: "Total", s: STYLE.TOTAL_LABEL },
-      { v: "", s: STYLE.TOTAL_LABEL },
-      { v: "", s: STYLE.TOTAL_LABEL },
-      { v: totals.rain, t: "n", s: STYLE.TOTAL_NUM },
-      { v: "", s: STYLE.TOTAL_LABEL },
-      { v: totals.lost, t: "n", s: STYLE.TOTAL_NUM },
-      { v: totals.alerts, t: "n", s: STYLE.TOTAL_NUM },
-      { v: "", s: STYLE.TOTAL_LABEL },
-    ]);
+    const total = COLUMNS.map(() => ({ v: "", s: STYLE.TOTAL_LABEL }));
+    total[0] = { v: "Total", s: STYLE.TOTAL_LABEL };
+    total[5] = { v: totals.rain, t: "n", s: STYLE.TOTAL_NUM };
+    total[9] = { v: totals.lost, t: "n", s: STYLE.TOTAL_NUM };
+    total[10] = { v: totals.alerts, t: "n", s: STYLE.TOTAL_NUM };
+    rows.push(total);
   }
 
   return {
-    name: sheetName(pit, index),
+    name: sheetName(dateIso),
     cols: COLUMNS.map((col) => ({ width: col.width })),
     rows,
-    merges: [`A1:${LAST_COL}1`],
     // Keep the column band visible while scrolling a long rainy day.
-    freeze: { ySplit: HEADER_ROW },
+    freeze: { ySplit: 1 },
   };
-};
-
-// pits: [{ name, records }] → one worksheet each. An empty day still yields one
-// header-only sheet, so the export never produces a file Excel refuses to open.
-export const buildRainfallSheets = ({ pits = [], dateIso, emptyPitName = "Rainfall" }) => {
-  if (pits.length === 0) return [buildRainfallSheet({ pit: emptyPitName, records: [], dateIso, index: 0 })];
-  return pits.map((pit, index) => buildRainfallSheet({ pit: pit.name, records: pit.records, dateIso, index }));
 };

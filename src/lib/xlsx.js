@@ -29,6 +29,14 @@ export const STYLE = {
   NUM: 5, // centred number, border
   TOTAL_LABEL: 6, // bold label on total fill, border
   TOTAL_NUM: 7, // bold number on total fill, border
+  // Log-sheet palette (rainfall): a gold header band and the source sheet's
+  // colour coding for intensity / YES-NO cells.
+  HEADER_GOLD: 8, // bold, centred, gold fill, border, wraps
+  RIGHT: 9, // right-aligned text (times, durations), border
+  LEFT: 10, // left-aligned text (remarks), border, wraps
+  PILL_RED: 11, // white bold on red — Heavy, YES
+  PILL_PEACH: 12, // dark on peach — Moderate
+  PILL_MUTED: 13, // grey fill — Clear, NO
 };
 
 // ── CRC32 (for the ZIP entries) ────────────────────────────────────────────
@@ -201,9 +209,15 @@ const stylesXml = () => {
     xf(0, 0, 1, align("center", "center", false)), // 5 NUM
     xf(1, 3, 1, align("center", "center", false)), // 6 TOTAL_LABEL
     xf(1, 3, 1, align("center", "center", false)), // 7 TOTAL_NUM
+    xf(1, 4, 1, align("center", "center", true)), // 8 HEADER_GOLD
+    xf(0, 0, 1, align("right", "center", false)), // 9 RIGHT
+    xf(0, 0, 1, align("left", "center", true)), // 10 LEFT
+    xf(3, 5, 1, align("center", "center", false)), // 11 PILL_RED (white bold font)
+    xf(0, 6, 1, align("center", "center", false)), // 12 PILL_PEACH
+    xf(0, 2, 1, align("center", "center", false)), // 13 PILL_MUTED
   ];
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFEFEF"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDDE7F0"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF9AA5B1"/></left><right style="thin"><color rgb="FF9AA5B1"/></right><top style="thin"><color rgb="FF9AA5B1"/></top><bottom style="thin"><color rgb="FF9AA5B1"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${cellXfs.length}">${cellXfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="7"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFEFEF"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDDE7F0"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFC000"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFC00000"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF8CBAD"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF9AA5B1"/></left><right style="thin"><color rgb="FF9AA5B1"/></right><top style="thin"><color rgb="FF9AA5B1"/></top><bottom style="thin"><color rgb="FF9AA5B1"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${cellXfs.length}">${cellXfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 };
 
 // One <c> element for a cell value at (row, col).
