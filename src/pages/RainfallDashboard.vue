@@ -177,7 +177,7 @@ function buildChart(rows) {
                   <th>Rainfall Intensity</th>
                   <th>Rain Duration (Min)</th>
                   <th>Red Alert</th>
-                  <th>Red Alert Duration</th>
+                  <th>Red Alert Duration (Min)</th>
                   <th>Affect operation</th>
                   <th class="rr-th-remark">Remark</th>
                 </tr>
@@ -215,7 +215,7 @@ function buildChart(rows) {
               <h2>Rainfall Record {{ pit.name }}</h2>
               <div class="legend mono">
                 <span><span class="lg-dot" style="background: var(--cool)" />Rain Duration (Min)</span>
-                <span><span class="lg-dot ml" style="background: var(--alert)" />Red Alert Duration</span>
+                <span><span class="lg-dot ml" style="background: var(--alert)" />Red Alert Duration (Min)</span>
               </div>
             </div>
 
