@@ -10,7 +10,7 @@ import TweakColor from "../components/common/TweakColor.vue";
 
 defineProps({ embedded: { type: Boolean, default: false } });
 
-const { scanning, downloading, error, snapshot, inventory, scannedMonth, lastDownload, scan, download } =
+const { scanning, downloading, error, snapshot, days, scannedMonth, lastDownload, scan, download } =
   useMonthlyBackup();
 
 const [t, setTweak] = useTweaks({
@@ -35,7 +35,6 @@ const maxMonth = localMonth();
 const fmt = (value) => Math.round(Number(value) || 0).toLocaleString("en-US");
 const stale = computed(() => scannedMonth.value !== month.value);
 const summary = computed(() => snapshot.value?.summary || {});
-const unavailable = computed(() => inventory.value.filter((table) => !table.available).length);
 const load = () => scan(month.value);
 const onMonthChange = () => load();
 
@@ -44,19 +43,19 @@ onMounted(load);
 
 <template>
   <div :class="embedded ? 'page-embed' : 'entry-dash mining-page'">
-    <TopBar v-if="!embedded" subtitle="Monthly backup" />
+    <TopBar v-if="!embedded" subtitle="Rainfall backup" />
 
     <section class="mining-hero monthly-hero">
       <div>
-        <span class="sum-k">Monthly data backup</span>
-        <h1>Monthly backup</h1>
+        <span class="sum-k">Monthly Rainfall backup</span>
+        <h1>Rainfall backup</h1>
         <p>
-          สำรองข้อมูลของเดือนที่เลือกเป็นไฟล์ Excel (.xlsx) โดยมีชีต Summary และแยกหนึ่งชีตต่อหนึ่งตาราง
-          ครบทั้ง Production, Rainfall, Plan/Target และข้อมูลตั้งค่าหลัก
+          สำรองเฉพาะข้อมูล Rainfall ของเดือนที่เลือกเป็นไฟล์ Excel (.xlsx)
+          โดยมีชีต Summary และแยกข้อมูล Rainfall เป็นหนึ่งชีตต่อวัน
         </p>
       </div>
-      <div class="mining-total mono" :title="`${fmt(summary.total_rows)} rows`">
-        {{ fmt(summary.total_rows) }}
+      <div class="mining-total mono" :title="`${fmt(summary.records)} rainfall records`">
+        {{ fmt(summary.records) }}
       </div>
     </section>
 
@@ -98,61 +97,60 @@ onMounted(load);
           Downloaded {{ lastDownload }}
         </p>
         <p v-else-if="!scanning && snapshot" class="mining-message">
-          {{ month }} is ready — {{ fmt(summary.total_rows) }} rows from
-          {{ fmt(summary.included_tables) }} tables.
-          <template v-if="unavailable"> {{ unavailable }} optional table(s) are not installed.</template>
+          {{ month }} is ready — {{ fmt(summary.records) }} rainfall records across
+          {{ fmt(summary.days) }} day(s).
         </p>
 
         <div class="monthly-stats">
           <div class="monthly-stat">
-            <span>Total rows</span>
-            <b class="mono">{{ fmt(summary.total_rows) }}</b>
+            <span>Rainfall records</span>
+            <b class="mono">{{ fmt(summary.records) }}</b>
           </div>
           <div class="monthly-stat">
-            <span>Shifts</span>
-            <b class="mono">{{ fmt(summary.shifts) }}</b>
+            <span>Rain duration (Min)</span>
+            <b class="mono">{{ fmt(summary.rain_duration) }}</b>
           </div>
           <div class="monthly-stat">
-            <span>Production entries</span>
-            <b class="mono">{{ fmt(summary.production_entries) }}</b>
+            <span>Red alerts</span>
+            <b class="mono">{{ fmt(summary.red_alerts) }}</b>
           </div>
           <div class="monthly-stat">
-            <span>Rainfall logs</span>
-            <b class="mono">{{ fmt(summary.rainfall_logs) }}</b>
+            <span>Red alert duration (Min)</span>
+            <b class="mono">{{ fmt(summary.red_alert_duration) }}</b>
           </div>
         </div>
 
         <div class="panel-head">
-          <h2>Backup contents</h2>
-          <span class="area-count-pill mono">{{ inventory.length }} tables</span>
+          <h2>Rainfall days</h2>
+          <span class="area-count-pill mono">{{ days.length }} days</span>
         </div>
 
         <div class="monthly-table-wrap">
           <table class="monthly-table">
             <thead>
               <tr>
-                <th>Table</th>
-                <th>Backup scope</th>
-                <th>Status</th>
-                <th class="num">Rows</th>
+                <th>Date</th>
+                <th>Areas</th>
+                <th class="num">Rainfall records</th>
+                <th class="num">Rain duration (Min)</th>
+                <th class="num">Red alerts</th>
+                <th class="num">Red alert duration (Min)</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="table in inventory" :key="table.name">
-                <td class="mono monthly-table-name">{{ table.name }}</td>
-                <td>{{ table.scope }}</td>
-                <td>
-                  <span class="monthly-status" :class="{ missing: !table.available }">
-                    {{ table.available ? "Included" : "Not installed" }}
-                  </span>
-                </td>
-                <td class="num mono">{{ fmt(table.rows) }}</td>
+              <tr v-for="day in days" :key="day.date">
+                <td class="mono monthly-table-name">{{ day.date }}</td>
+                <td>{{ day.areas.join(", ") || "—" }}</td>
+                <td class="num mono">{{ fmt(day.record_count) }}</td>
+                <td class="num mono">{{ fmt(day.rain_duration) }}</td>
+                <td class="num mono">{{ fmt(day.red_alerts) }}</td>
+                <td class="num mono">{{ fmt(day.red_alert_duration) }}</td>
               </tr>
               <tr v-if="scanning">
-                <td colspan="4" class="monthly-empty">Reading all records for {{ month }}…</td>
+                <td colspan="6" class="monthly-empty">Reading Rainfall records for {{ month }}…</td>
               </tr>
-              <tr v-else-if="inventory.length === 0">
-                <td colspan="4" class="monthly-empty">No backup preview loaded.</td>
+              <tr v-else-if="days.length === 0">
+                <td colspan="6" class="monthly-empty">No Rainfall records in {{ month }}.</td>
               </tr>
             </tbody>
           </table>
@@ -160,9 +158,9 @@ onMounted(load);
 
         <div class="monthly-note">
           <b>Safe, read-only backup.</b>
-          การดาวน์โหลดไม่แก้ไขหรือลบข้อมูลในฐานข้อมูล ไฟล์ Excel จะแยกข้อมูลแต่ละตารางเป็นคนละชีต
-          และรวม snapshot ของข้อมูลตั้งค่าหลัก แต่จะไม่รวมตาราง <span class="mono">users</span>
-          เพื่อป้องกันบัญชีผู้ใช้และรหัสผ่าน
+          การดาวน์โหลดไม่แก้ไขหรือลบข้อมูลในฐานข้อมูล ไฟล์ Excel จะมีเฉพาะข้อมูล Rainfall
+          พร้อม Period, Rain Duration, Red Alert Duration, Affect operation และ Remark
+          ตามที่แสดงใน Rainfall record
         </div>
       </section>
     </main>
@@ -286,18 +284,6 @@ onMounted(load);
 .monthly-table-name {
   color: var(--ink);
   font-weight: 600;
-}
-.monthly-status {
-  display: inline-flex;
-  padding: 3px 7px;
-  border: 1px solid rgba(57, 169, 107, 0.35);
-  border-radius: 999px;
-  color: #39a96b;
-  font-size: 10px;
-}
-.monthly-status.missing {
-  border-color: rgba(224, 108, 108, 0.35);
-  color: #e06c6c;
 }
 .monthly-empty {
   padding: 26px 12px !important;

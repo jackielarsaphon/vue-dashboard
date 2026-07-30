@@ -24,7 +24,7 @@ const tabs = [
   { key: "dumpmodel", label: "Dump model", comp: DumpModel },
   { key: "location", label: "Locations", comp: DumpLocation },
   { key: "backup", label: "Backup data", comp: BackupData },
-  { key: "monthlybackup", label: "Monthly backup", comp: MonthlyBackup },
+  { key: "monthlybackup", label: "Rainfall backup", comp: MonthlyBackup },
 ];
 
 const route = useRoute();
