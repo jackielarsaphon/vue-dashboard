@@ -76,8 +76,13 @@ export const durationMinutes = (from, to) => {
 };
 
 export const periodLabel = (row) => (toHhmm(row?.startTime) && toHhmm(row?.endTime) ? `${toHhmm(row.startTime)}-${toHhmm(row.endTime)}` : "");
-export const rainMinutes = (row) => durationMinutes(row?.startTime, row?.endTime);
-// Lost time only counts when the spell actually affected the operation.
+// A "Clear" row records a period with NO rain in it — the sheet writes 0 there even
+// though the period still spans an hour (that hour can still cost operating time:
+// wet ground after the rain stops, see lostMinutes). Every other intensity counts
+// the whole window.
+export const rainMinutes = (row) => (row?.intensity === "Clear" ? 0 : durationMinutes(row?.startTime, row?.endTime));
+// Lost time only counts when the spell actually affected the operation, and it is
+// independent of intensity for the same reason.
 export const lostMinutes = (row) => (row?.affectOpt ? durationMinutes(row?.affectStart, row?.affectEnd) : 0);
 
 // --- row <-> database mapping ----------------------------------------------

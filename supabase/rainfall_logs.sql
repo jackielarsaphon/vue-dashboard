@@ -67,8 +67,10 @@ select
     when r.start_time is null or r.end_time is null then null
     else r.start_time || '-' || r.end_time
   end as period,
+  -- intensity = 'Clear' คือช่วงที่ "ไม่มีฝน" → นับเป็น 0 นาที ตามชีตต้นฉบับ
+  -- (ช่วงนั้นยังเสียเวลาทำงานได้ ดู lost_minutes ซึ่งไม่ขึ้นกับ intensity)
   case
-    when r.start_time is null or r.end_time is null then 0
+    when r.intensity = 'Clear' or r.start_time is null or r.end_time is null then 0
     else (extract(epoch from ((r.end_time::time - r.start_time::time) + interval '24 hours')) / 60)::int % 1440
   end as rain_minutes,
   r.affect_opt,

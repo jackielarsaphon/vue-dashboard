@@ -1725,66 +1725,12 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
 }
 
 /* =============================================================================
-   Step 3 — Rainfall log. A wide, sheet-shaped table (Area … Remark) that scrolls
-   horizontally inside the panel; the page itself never scrolls sideways. Desktop
-   only: Data entry is trips-only at phone width, so there is no ≤640px variant.
+   Step 3 — Rainfall log. Same shape as step 2: the pit list lives in the .area-side
+   sidebar and the selected pit's rows fill the .area-detail panel, so both steps
+   reuse the same layout classes. The sheet-shaped table scrolls horizontally inside
+   its panel; the page itself never scrolls sideways. Desktop only — Data entry is
+   trips-only at phone width, so there is no ≤640px variant.
    ============================================================================= */
-.rain-panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 20px 20px 18px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-.rain-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.rain-head-id h2 {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.1;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-.rain-head-sub {
-  display: block;
-  margin-top: 5px;
-  color: var(--ink-3);
-  font-size: 12px;
-}
-.rain-metrics {
-  display: flex;
-  align-items: flex-end;
-  gap: 18px;
-}
-.rain-metric {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.1;
-}
-.rain-metric b {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.rain-metric span {
-  margin-top: 3px;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.rain-metric.alert b { color: var(--alert); }
 .rain-scroll {
   overflow-x: auto;
   /* Give the floating SearchSelect menus room: they are position:fixed, so the
@@ -1792,18 +1738,15 @@ table.grid-table tfoot td.tf-grand { text-align: right; color: var(--accent); }
   padding-bottom: 2px;
 }
 table.rain-table {
-  min-width: 1240px;
+  min-width: 1080px;
 }
 table.rain-table th,
 table.rain-table td {
   white-space: nowrap;
   vertical-align: middle;
 }
-table.rain-table thead th.th-area,
 table.rain-table thead th.th-intensity,
 table.rain-table thead th.th-remark { text-align: left; }
-table.rain-table th.th-area,
-table.rain-table td:first-child { min-width: 130px; }
 table.rain-table th.th-remark,
 table.rain-table td.rain-remark-cell { min-width: 200px; white-space: normal; }
 /* Visual break before the Affect Opt block (its own start/end/lost columns). */
@@ -1849,10 +1792,11 @@ td.rain-derived.muted { color: var(--ink-3); font-weight: 500; }
   font-size: 12px;
   padding: 18px 8px;
 }
+/* Save status sits under the table, right-aligned like the trip modal's. */
 .rain-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
 }
