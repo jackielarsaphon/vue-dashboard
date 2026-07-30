@@ -5,6 +5,8 @@
 // it's placed inside DownloadImageButton's toolbar slot so both share one row.
 defineProps({
   busy: { type: Boolean, default: false },
+  // Pages with more than one export name theirs (e.g. "Export rainfall").
+  label: { type: String, default: "Export Excel" },
 });
 defineEmits(["click"]);
 </script>
@@ -21,6 +23,6 @@ defineEmits(["click"]);
         stroke-linejoin="round"
       />
     </svg>
-    <span>{{ busy ? "Exporting…" : "Export Excel" }}</span>
+    <span>{{ busy ? "Exporting…" : label }}</span>
   </button>
 </template>

@@ -8,6 +8,7 @@ import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useRainfallLog, RAIN_INTENSITIES, durationMinutes, periodLabel, rainMinutes, lostMinutes } from "../composables/useRainfallLog.js";
+import { useRainfallExport } from "../composables/useRainfallExport.js";
 import { useAppAreas } from "../composables/useAppAreas.js";
 import { useUsers } from "../composables/useUsers.js";
 import { useTripReportExport } from "../composables/useTripReportExport.js";
@@ -823,6 +824,10 @@ const {
 
 const rainCount = computed(() => rainCountForDate(selection.date));
 
+// The rainfall log as an .xlsx (one tab per pit, the whole date). Same export the
+// Rainfall dashboard offers — clicking it here or there produces the same file.
+const { exporting: exportingRainfall, exportExcel: exportRainfallExcel } = useRainfallExport();
+
 // Rain is logged per PIT (Copper Pit / Gold Pit), not per pattern code — the weather
 // covers the whole pit. Step 3 therefore works one pit at a time behind the same
 // sidebar as Step 2: the list is the App Area master (Settings → App Area) plus any
@@ -960,10 +965,6 @@ onUnmounted(() => {
 <template>
   <div class="entry-dash">
     <TopBar subtitle="Data entry" />
-
-    <div class="dash-toolbar no-capture entry-export-toolbar">
-      <ExcelExportButton :busy="exportingTrips" @click="exportTripReport" />
-    </div>
 
     <section v-if="!isMobile" class="entry-plan-top">
       <div class="entry-stepper" aria-label="Data entry steps">
@@ -1203,6 +1204,7 @@ onUnmounted(() => {
           <div class="area-side-head">
             <h2>Excavators - {{ detailRows.length }} units</h2>
             <div style="display: flex; gap: 8px; align-items: center">
+              <ExcelExportButton :busy="exportingTrips" @click="exportTripReport" />
               <button
                 v-if="hasUnusedRow"
                 class="btn"
@@ -1381,7 +1383,10 @@ onUnmounted(() => {
         <section class="exc-panel">
           <div class="area-side-head">
             <h2>Rainfall log - {{ selectedRainCard.rows.length }} rows</h2>
-            <button class="add-exc" type="button" :disabled="!selectedRainArea" @click="addRainRow">+ Add rainfall row</button>
+            <div style="display: flex; gap: 8px; align-items: center">
+              <ExcelExportButton :busy="exportingRainfall" label="Export rainfall" @click="exportRainfallExcel" />
+              <button class="add-exc" type="button" :disabled="!selectedRainArea" @click="addRainRow">+ Add rainfall row</button>
+            </div>
           </div>
 
           <p class="modal-hint">
