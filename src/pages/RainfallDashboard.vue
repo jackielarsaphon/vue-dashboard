@@ -3,7 +3,7 @@ import { computed, ref, watchEffect } from "vue";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useAppAreas } from "../composables/useAppAreas.js";
-import { useRainfallLog, periodLabel, rainMinutes, lostMinutes } from "../composables/useRainfallLog.js";
+import { useRainfallLog, periodLabel, rainMinutes, redAlertMinutes } from "../composables/useRainfallLog.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import { useDownloadImage } from "../composables/useDownloadImage.js";
 import TopBar from "../components/common/TopBar.vue";
@@ -62,10 +62,10 @@ const pits = computed(() => {
     const totals = rows.reduce(
       (acc, row) => ({
         rain: acc.rain + rainMinutes(row),
-        lost: acc.lost + lostMinutes(row),
+        alertDuration: acc.alertDuration + redAlertMinutes(row),
         alerts: acc.alerts + (row.redAlert ? 1 : 0),
       }),
-      { rain: 0, lost: 0, alerts: 0 },
+      { rain: 0, alertDuration: 0, alerts: 0 },
     );
     return { name, color: PIT_COLORS[index % PIT_COLORS.length], rows, totals, chart: buildChart(rows) };
   });
@@ -73,13 +73,17 @@ const pits = computed(() => {
 
 const dayTotals = computed(() =>
   pits.value.reduce(
-    (acc, pit) => ({ rain: acc.rain + pit.totals.rain, lost: acc.lost + pit.totals.lost, alerts: acc.alerts + pit.totals.alerts }),
-    { rain: 0, lost: 0, alerts: 0 },
+    (acc, pit) => ({
+      rain: acc.rain + pit.totals.rain,
+      alertDuration: acc.alertDuration + pit.totals.alertDuration,
+      alerts: acc.alerts + pit.totals.alerts,
+    }),
+    { rain: 0, alertDuration: 0, alerts: 0 },
   ),
 );
 
 // --- chart ------------------------------------------------------------------
-// Grouped bars per period: Rain duration (blue) beside Lost time (red). The viewBox
+// Grouped bars per period: Rain duration (blue) beside Red alert duration (red). The viewBox
 // grows with the number of periods, so a long rainy day stays readable instead of
 // squashing into the same box; a short one stretches to MIN_PLOT instead so the
 // drawing fills the panel rather than floating as a small block in the middle.
@@ -89,9 +93,9 @@ function buildChart(rows) {
   const groups = rows.map((row) => ({
     period: periodLabel(row) || "—",
     rain: rainMinutes(row),
-    lost: lostMinutes(row),
+    alert: redAlertMinutes(row),
   }));
-  const peak = groups.reduce((max, g) => Math.max(max, g.rain, g.lost), 0);
+  const peak = groups.reduce((max, g) => Math.max(max, g.rain, g.alert), 0);
   // Round the axis up to the next 20 with headroom for the value labels, and never
   // flatten to zero when nothing was logged.
   const yMax = Math.max(20, Math.ceil((peak * 1.2) / 20) * 20);
@@ -116,7 +120,7 @@ function buildChart(rows) {
       period: group.period,
       center,
       rain: { x: center - barW - CHART.gap / 2, y: y(group.rain), h: baseY - y(group.rain), value: group.rain },
-      lost: { x: center + CHART.gap / 2, y: y(group.lost), h: baseY - y(group.lost), value: group.lost },
+      alert: { x: center + CHART.gap / 2, y: y(group.alert), h: baseY - y(group.alert), value: group.alert },
     };
   });
 
@@ -147,7 +151,7 @@ function buildChart(rows) {
           <span>Rain duration (min)</span>
         </div>
         <div class="rr-metric">
-          <b class="mono">{{ dayTotals.lost }}</b>
+          <b class="mono">{{ dayTotals.alertDuration }}</b>
           <span>Red alert duration (min)</span>
         </div>
         <div class="rr-metric" :class="{ alert: dayTotals.alerts > 0 }">
@@ -184,7 +188,7 @@ function buildChart(rows) {
                   <td class="rr-intensity" :class="`is-${String(row.intensity || 'clear').toLowerCase()}`">{{ row.intensity || "Clear" }}</td>
                   <td class="mono num">{{ rainMinutes(row) }}</td>
                   <td :class="{ 'rr-yes': row.redAlert }">{{ row.redAlert ? "YES" : "" }}</td>
-                  <td class="mono num">{{ lostMinutes(row) }}</td>
+                  <td class="mono num">{{ redAlertMinutes(row) }}</td>
                   <td :class="row.affectOpt ? 'rr-yes' : 'rr-no'">{{ row.affectOpt ? "YES" : "NO" }}</td>
                   <td class="rr-remark">{{ row.remark }}</td>
                 </tr>
@@ -198,7 +202,7 @@ function buildChart(rows) {
                   <td />
                   <td class="mono num">{{ pit.totals.rain }}</td>
                   <td class="mono num">{{ pit.totals.alerts }}</td>
-                  <td class="mono num">{{ pit.totals.lost }}</td>
+                  <td class="mono num">{{ pit.totals.alertDuration }}</td>
                   <td />
                   <td />
                 </tr>
@@ -233,12 +237,12 @@ function buildChart(rows) {
 
                 <g v-for="bar in pit.chart.bars" :key="bar.key">
                   <rect :x="bar.rain.x" :y="bar.rain.y" :width="pit.chart.barW" :height="bar.rain.h" fill="var(--cool)" />
-                  <rect :x="bar.lost.x" :y="bar.lost.y" :width="pit.chart.barW" :height="bar.lost.h" fill="var(--alert)" />
+                  <rect :x="bar.alert.x" :y="bar.alert.y" :width="pit.chart.barW" :height="bar.alert.h" fill="var(--alert)" />
                   <text :x="bar.rain.x + pit.chart.barW / 2" :y="bar.rain.y - 5" class="bar-label mono" text-anchor="middle" fill="var(--cool)">
                     {{ bar.rain.value }}
                   </text>
-                  <text :x="bar.lost.x + pit.chart.barW / 2" :y="bar.lost.y - 5" class="bar-label mono" text-anchor="middle" fill="var(--alert)">
-                    {{ bar.lost.value }}
+                  <text :x="bar.alert.x + pit.chart.barW / 2" :y="bar.alert.y - 5" class="bar-label mono" text-anchor="middle" fill="var(--alert)">
+                    {{ bar.alert.value }}
                   </text>
                   <text :x="bar.center" :y="pit.chart.baseY + 16" class="axis mono" text-anchor="middle">{{ bar.period }}</text>
                 </g>

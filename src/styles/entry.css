@@ -1749,7 +1749,7 @@ table.rain-table thead th.th-intensity,
 table.rain-table thead th.th-remark { text-align: left; }
 table.rain-table th.th-remark,
 table.rain-table td.rain-remark-cell { min-width: 200px; white-space: normal; }
-/* Visual break before the Affect Opt block (its own start/end/lost columns). */
+/* Visual break before the Red Alert block (status, Start/End and duration). */
 table.rain-table .rain-group-start { border-left: 1px solid var(--line); }
 td.rain-derived {
   text-align: center;
@@ -1802,7 +1802,7 @@ td.rain-derived.muted { color: var(--ink-3); font-weight: 500; }
 }
 .rain-foot .foot-note { font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.04em; }
 
-/* Lost-time cells open the pop-up below instead of holding their own time input —
+/* Red-alert cells open the pop-up below instead of holding their own time input —
    the row is wide enough already, and a disabled `--:--` field invites mis-clicks. */
 .rain-time-btn {
   width: 100%;
@@ -1818,40 +1818,38 @@ td.rain-derived.muted { color: var(--ink-3); font-weight: 500; }
 }
 .rain-time-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .rain-time-btn:disabled { opacity: 0.4; cursor: not-allowed; color: var(--ink-3); }
-.lost-time-modal { width: min(520px, 94vw); }
+.red-alert-modal { width: min(520px, 94vw); }
 /* Keep the dialog's label and pit chip on one line — only the rain window wraps. */
-.lost-time-modal .modal-title .exc,
-.lost-time-modal .modal-title .chip { white-space: nowrap; }
-.lost-time-fields {
+.red-alert-modal .modal-title .exc,
+.red-alert-modal .modal-title .chip { white-space: nowrap; }
+.red-alert-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
+  grid-template-columns: 1fr 1fr auto;
   align-items: end;
   gap: 12px;
 }
-/* The red-alert select keeps its pill look, sized to the field like the time inputs. */
-.lost-time-alert .rain-yn { width: 78px; min-height: 38px; }
-.lost-time-result {
+.red-alert-result {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   line-height: 1.1;
   padding-bottom: 4px;
 }
-.lost-time-result b {
+.red-alert-result b {
   font-size: 22px;
   font-weight: 600;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
-.lost-time-result span {
+.red-alert-result span {
   margin-top: 3px;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
-/* Four columns don't fit a phone-width dialog: pair the fields up instead. */
+/* The fields pair up on a phone-width dialog. */
 @media (max-width: 640px) {
-  .lost-time-fields { grid-template-columns: 1fr 1fr; }
-  .lost-time-result { align-items: flex-start; }
+  .red-alert-fields { grid-template-columns: 1fr 1fr; }
+  .red-alert-result { align-items: flex-start; }
 }

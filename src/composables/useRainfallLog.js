@@ -6,8 +6,8 @@ import { useAppAreas } from "./useAppAreas.js";
 
 // Persistence + reads for the "Rainfall" step (step 3) on the Data entry page.
 // One row = one rain spell in one area, mirroring the Rainfall sheet:
-//   Area · Intensity · Start/End · Period · Rain duration · Affect Opt ·
-//   Start/End · Lost time duration · Red alert · Remark
+//   Area · Intensity · Start/End · Period · Rain duration · Red alert ·
+//   Start/End · Red alert duration · Affect Opt · Remark
 // Period and both durations are DERIVED here (and in vw_rainfall_logs), never
 // stored — a stored copy would drift the moment someone edits a time.
 //
@@ -77,13 +77,13 @@ export const durationMinutes = (from, to) => {
 
 export const periodLabel = (row) => (toHhmm(row?.startTime) && toHhmm(row?.endTime) ? `${toHhmm(row.startTime)}-${toHhmm(row.endTime)}` : "");
 // A "Clear" row records a period with NO rain in it — the sheet writes 0 there even
-// though the period still spans an hour (that hour can still cost operating time:
-// wet ground after the rain stops, see lostMinutes). Every other intensity counts
-// the whole window.
+// though the period still spans an hour. Every other intensity counts the whole
+// window.
 export const rainMinutes = (row) => (row?.intensity === "Clear" ? 0 : durationMinutes(row?.startTime, row?.endTime));
-// Lost time only counts when the spell actually affected the operation, and it is
-// independent of intensity for the same reason.
-export const lostMinutes = (row) => (row?.affectOpt ? durationMinutes(row?.affectStart, row?.affectEnd) : 0);
+// The alert window is recorded only when Red Alert is YES. The physical database
+// columns retain their legacy affect_start / affect_end names so existing projects
+// can adopt this workflow without a destructive migration.
+export const redAlertMinutes = (row) => (row?.redAlert ? durationMinutes(row?.redAlertStart, row?.redAlertEnd) : 0);
 
 // --- row <-> database mapping ----------------------------------------------
 const toRow = (record) => ({
@@ -93,8 +93,8 @@ const toRow = (record) => ({
   startTime: toHhmm(record.start_time),
   endTime: toHhmm(record.end_time),
   affectOpt: !!record.affect_opt,
-  affectStart: toHhmm(record.affect_start),
-  affectEnd: toHhmm(record.affect_end),
+  redAlertStart: toHhmm(record.affect_start),
+  redAlertEnd: toHhmm(record.affect_end),
   redAlert: !!record.red_alert,
   remark: record.remark || "",
   createdAt: record.created_at || "",
@@ -108,12 +108,12 @@ const DB_COLUMN = {
   startTime: "start_time",
   endTime: "end_time",
   affectOpt: "affect_opt",
-  affectStart: "affect_start",
-  affectEnd: "affect_end",
+  redAlertStart: "affect_start",
+  redAlertEnd: "affect_end",
   redAlert: "red_alert",
   remark: "remark",
 };
-const TIME_FIELDS = new Set(["startTime", "endTime", "affectStart", "affectEnd"]);
+const TIME_FIELDS = new Set(["startTime", "endTime", "redAlertStart", "redAlertEnd"]);
 
 const toDbPatch = (patch) => {
   const out = {};
@@ -134,8 +134,8 @@ const blankRow = (init = {}) => ({
   startTime: toHhmm(init.startTime),
   endTime: toHhmm(init.endTime),
   affectOpt: false,
-  affectStart: "",
-  affectEnd: "",
+  redAlertStart: "",
+  redAlertEnd: "",
   redAlert: false,
   remark: "",
   createdAt: new Date().toISOString(),
@@ -216,10 +216,10 @@ const totals = computed(() =>
   rows.value.reduce(
     (acc, row) => ({
       rain: acc.rain + rainMinutes(row),
-      lost: acc.lost + lostMinutes(row),
+      alertDuration: acc.alertDuration + redAlertMinutes(row),
       alerts: acc.alerts + (row.redAlert ? 1 : 0),
     }),
-    { rain: 0, lost: 0, alerts: 0 },
+    { rain: 0, alertDuration: 0, alerts: 0 },
   ),
 );
 

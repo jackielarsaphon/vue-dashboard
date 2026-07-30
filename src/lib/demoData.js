@@ -146,8 +146,8 @@ export function buildDemoStore() {
   const rainfall_logs = [];
 
   // A morning rain spell for the Rainfall step / dashboard: [area, intensity,
-  // start, end, affected, remark]. Lost time mirrors the rain window when the
-  // spell stopped the operation, like the Rainfall sheet.
+  // start, end, affected, alert, remark]. The Red Alert window mirrors the rain
+  // window in the seeded examples.
   const rainSeed = [
     ["Copper Pit", "Heavy", "09:00", "10:00", false, false, ""],
     ["Copper Pit", "Heavy", "10:00", "11:00", true, true, "ฝนเริ่มตกหนักทางลื่น มี Red Alert 10:35 AM"],
@@ -226,7 +226,7 @@ export function buildDemoStore() {
       rainfall_logs.push({
         id: uuid(), shift_id: dayShift.id, area_code: area, intensity,
         start_time: start, end_time: end,
-        affect_opt: affected, affect_start: affected ? start : null, affect_end: affected ? end : null,
+        affect_opt: affected, affect_start: alert ? start : null, affect_end: alert ? end : null,
         red_alert: alert, remark: remark || null, created_at: nowIso(), updated_at: nowIso(),
       });
     });

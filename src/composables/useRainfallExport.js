@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { useShiftSelection } from "./useShiftSelection.js";
-import { useRainfallLog, periodLabel, rainMinutes, lostMinutes } from "./useRainfallLog.js";
+import { useRainfallLog, periodLabel, rainMinutes, redAlertMinutes } from "./useRainfallLog.js";
 import { downloadXlsx } from "../lib/xlsx.js";
 import { buildRainfallSheet } from "../lib/rainfallSheet.js";
 
@@ -45,11 +45,11 @@ export function useRainfallExport() {
           end: row.endTime,
           period: periodLabel(row),
           rainMin: rainMinutes(row),
-          affect: row.affectOpt,
-          lostStart: row.affectStart,
-          lostEnd: row.affectEnd,
-          lostMin: lostMinutes(row),
           redAlert: row.redAlert,
+          redAlertStart: row.redAlertStart,
+          redAlertEnd: row.redAlertEnd,
+          redAlertMin: redAlertMinutes(row),
+          affect: row.affectOpt,
           remark: row.remark,
           shift: row.shiftType || "",
         }));

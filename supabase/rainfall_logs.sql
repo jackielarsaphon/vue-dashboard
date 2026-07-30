@@ -5,9 +5,9 @@
 -- =============================================================================
 -- 1 แถว = ช่วงฝน 1 ช่วง ในพื้นที่ 1 แห่ง เหมือน 1 บรรทัดในชีต Rainfall:
 --   Area | Rainfall Intensity | Start Time | End Time | Period | Rain Duration
---   | Affect Opt | Start | End | Lost time Duration | Red Alert | Remark
+--   | Red Alert | Start | End | Red Alert Duration | Affect Opt | Remark
 --
--- Period / Rain Duration / Lost time Duration ไม่ได้เก็บในตาราง — คำนวณจาก
+-- Period / Rain Duration / Red Alert Duration ไม่ได้เก็บในตาราง — คำนวณจาก
 -- start/end ทั้งในหน้าจอและใน SQL ด้านล่าง (ค่าที่ derive ได้ไม่ควรเก็บซ้ำ
 -- เพราะจะเพี้ยนเมื่อมีคนแก้เวลาแล้วลืมอัปเดต).
 --
@@ -34,8 +34,10 @@ create table if not exists public.rainfall_logs (
   -- ช่วงที่ฝนตก
   start_time   text check (start_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
   end_time     text check (end_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
-  -- กระทบงานหรือไม่ + ช่วงเวลาที่เสียไป
+  -- กระทบงานหรือไม่
   affect_opt   boolean not null default false,
+  -- ช่วง Red Alert; คงชื่อคอลัมน์ affect_start / affect_end เดิมไว้เพื่อให้
+  -- ฐานข้อมูลที่ใช้งานอยู่เปลี่ยน workflow ได้โดยไม่ต้อง migrate ข้อมูล
   affect_start text check (affect_start ~ '^[0-2][0-9]:[0-5][0-9]$'),
   affect_end   text check (affect_end ~ '^[0-2][0-9]:[0-5][0-9]$'),
   red_alert    boolean not null default false,
@@ -68,7 +70,7 @@ select
     else r.start_time || '-' || r.end_time
   end as period,
   -- intensity = 'Clear' คือช่วงที่ "ไม่มีฝน" → นับเป็น 0 นาที ตามชีตต้นฉบับ
-  -- (ช่วงนั้นยังเสียเวลาทำงานได้ ดู lost_minutes ซึ่งไม่ขึ้นกับ intensity)
+  -- (Red Alert เป็นสถานะแยกและไม่ขึ้นกับ intensity)
   case
     when r.intensity = 'Clear' or r.start_time is null or r.end_time is null then 0
     else (extract(epoch from ((r.end_time::time - r.start_time::time) + interval '24 hours')) / 60)::int % 1440
@@ -83,7 +85,15 @@ select
   r.red_alert,
   r.remark,
   r.created_at,
-  r.updated_at
+  r.updated_at,
+  -- ชื่อที่ตรงกับ workflow ใหม่; affect_start / affect_end ด้านบนคงไว้เพื่อ
+  -- backward compatibility ของ view เดิม
+  r.affect_start as red_alert_start,
+  r.affect_end as red_alert_end,
+  case
+    when not r.red_alert or r.affect_start is null or r.affect_end is null then 0
+    else (extract(epoch from ((r.affect_end::time - r.affect_start::time) + interval '24 hours')) / 60)::int % 1440
+  end as red_alert_minutes
 from public.rainfall_logs r
 join public.shifts s on s.id = r.shift_id;
 

@@ -4,7 +4,7 @@ import { STYLE } from "./xlsx.js";
 // date, in the same shape as the source Rainfall sheet:
 //
 //   Area | Rainfall Intensity | Start Time | End Time | Period | Rain Duration (Min)
-//        | Affect Opt | Start | End | Lost time Duration (Min) | Red Alert | Remark
+//        | Red Alert | Start | End | Red Alert Duration (Min) | Affect Opt | Remark
 //
 // with the gold header band and its colour coding (Heavy / YES red, Moderate peach,
 // Clear / NO grey). A Shift column trails the twelve so rows from the two shifts of
@@ -21,11 +21,11 @@ const COLUMNS = [
   { title: "End Time", width: 11 },
   { title: "Period", width: 14 },
   { title: "Rain Duration (Min)", width: 18 },
-  { title: "Affect Opt", width: 11 },
+  { title: "Red Alert", width: 11 },
   { title: "Start", width: 10 },
   { title: "End", width: 10 },
-  { title: "Lost time Duration (Min)", width: 21 },
-  { title: "Red Alert", width: 11 },
+  { title: "Red Alert Duration (Min)", width: 22 },
+  { title: "Affect Opt", width: 11 },
   { title: "Remark", width: 48 },
   { title: "Shift", width: 8 },
 ];
@@ -46,18 +46,18 @@ const INTENSITY_STYLE = {
   Clear: STYLE.PILL_MUTED,
 };
 
-// records: [{ area, intensity, start, end, period, rainMin, affect, lostStart,
-//             lostEnd, lostMin, redAlert, remark, shift }]
-// Cells the source sheet leaves empty (the lost-time window of an unaffected spell)
+// records: [{ area, intensity, start, end, period, rainMin, redAlert,
+//             redAlertStart, redAlertEnd, redAlertMin, affect, remark, shift }]
+// Cells the source sheet leaves empty (the alert window of a non-alert spell)
 // stay empty here too, rather than reading as a real 0.
 export const buildRainfallSheet = ({ records = [], dateIso }) => {
   const totals = records.reduce(
     (acc, r) => ({
       rain: acc.rain + (Number(r.rainMin) || 0),
-      lost: acc.lost + (Number(r.lostMin) || 0),
+      alertDuration: acc.alertDuration + (Number(r.redAlertMin) || 0),
       alerts: acc.alerts + (r.redAlert ? 1 : 0),
     }),
-    { rain: 0, lost: 0, alerts: 0 },
+    { rain: 0, alertDuration: 0, alerts: 0 },
   );
 
   const rows = [COLUMNS.map((col) => ({ v: col.title, s: STYLE.HEADER_GOLD }))];
@@ -70,11 +70,11 @@ export const buildRainfallSheet = ({ records = [], dateIso }) => {
       { v: r.end || "", s: STYLE.RIGHT },
       { v: r.period || "", s: STYLE.LABEL },
       { v: Number(r.rainMin) || 0, t: "n", s: STYLE.RIGHT },
-      { v: r.affect ? "YES" : "NO", s: r.affect ? STYLE.PILL_RED : STYLE.PILL_MUTED },
-      { v: r.affect ? r.lostStart || "" : "", s: STYLE.RIGHT },
-      { v: r.affect ? r.lostEnd || "" : "", s: STYLE.RIGHT },
-      r.affect ? { v: Number(r.lostMin) || 0, t: "n", s: STYLE.RIGHT } : { v: "", s: STYLE.RIGHT },
       { v: r.redAlert ? "YES" : "NO", s: r.redAlert ? STYLE.PILL_RED : STYLE.PILL_MUTED },
+      { v: r.redAlert ? r.redAlertStart || "" : "", s: STYLE.RIGHT },
+      { v: r.redAlert ? r.redAlertEnd || "" : "", s: STYLE.RIGHT },
+      r.redAlert ? { v: Number(r.redAlertMin) || 0, t: "n", s: STYLE.RIGHT } : { v: "", s: STYLE.RIGHT },
+      { v: r.affect ? "YES" : "NO", s: r.affect ? STYLE.PILL_RED : STYLE.PILL_MUTED },
       { v: r.remark || "", s: STYLE.LEFT },
       { v: r.shift || "", s: STYLE.LABEL },
     ]);
@@ -84,8 +84,8 @@ export const buildRainfallSheet = ({ records = [], dateIso }) => {
     const total = COLUMNS.map(() => ({ v: "", s: STYLE.TOTAL_LABEL }));
     total[0] = { v: "Total", s: STYLE.TOTAL_LABEL };
     total[5] = { v: totals.rain, t: "n", s: STYLE.TOTAL_NUM };
-    total[9] = { v: totals.lost, t: "n", s: STYLE.TOTAL_NUM };
-    total[10] = { v: totals.alerts, t: "n", s: STYLE.TOTAL_NUM };
+    total[6] = { v: totals.alerts, t: "n", s: STYLE.TOTAL_NUM };
+    total[9] = { v: totals.alertDuration, t: "n", s: STYLE.TOTAL_NUM };
     rows.push(total);
   }
 

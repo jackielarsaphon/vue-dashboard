@@ -7,7 +7,7 @@ import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
-import { useRainfallLog, RAIN_INTENSITIES, durationMinutes, periodLabel, rainMinutes, lostMinutes } from "../composables/useRainfallLog.js";
+import { useRainfallLog, RAIN_INTENSITIES, durationMinutes, periodLabel, rainMinutes, redAlertMinutes } from "../composables/useRainfallLog.js";
 import { useRainfallExport } from "../composables/useRainfallExport.js";
 import { useAppAreas } from "../composables/useAppAreas.js";
 import { useUsers } from "../composables/useUsers.js";
@@ -811,7 +811,7 @@ watch(openPlacementId, (id) => {
 // --- Step 3: Rainfall log ---------------------------------------------------
 // One row per rain spell, matching the Rainfall sheet. Rows belong to the selected
 // DATE + SHIFT (each crew logs the weather it worked through); Period, Rain duration
-// and Lost time are derived from the times, never keyed.
+// and Red alert duration are derived from the times, never keyed.
 const {
   rows: rainRows,
   saveState: rainSaveState,
@@ -852,16 +852,16 @@ const rainAreaCards = computed(() =>
     const totals = rows.reduce(
       (acc, row) => ({
         rain: acc.rain + rainMinutes(row),
-        lost: acc.lost + lostMinutes(row),
+        alertDuration: acc.alertDuration + redAlertMinutes(row),
         alerts: acc.alerts + (row.redAlert ? 1 : 0),
       }),
-      { rain: 0, lost: 0, alerts: 0 },
+      { rain: 0, alertDuration: 0, alerts: 0 },
     );
     const status = totals.alerts > 0 ? "alert" : rows.some((row) => row.affectOpt) ? "warn" : "ok";
     return { name, rows, ...totals, status };
   }),
 );
-const EMPTY_RAIN_CARD = { name: "", rows: [], rain: 0, lost: 0, alerts: 0, status: "ok" };
+const EMPTY_RAIN_CARD = { name: "", rows: [], rain: 0, alertDuration: 0, alerts: 0, status: "ok" };
 const selectedRainCard = computed(() => rainAreaCards.value.find((card) => card.name === selectedRainArea.value) ?? EMPTY_RAIN_CARD);
 const rainRowsForArea = computed(() => selectedRainCard.value.rows);
 
@@ -891,59 +891,57 @@ const addRainRow = () =>
 
 const setRainField = (row, field, value) => updateRainRow(row.id, { [field]: value });
 
-// Affect Opt drives the lost-time columns: YES seeds the lost window from the rain
-// window (they usually match) and opens the pop-up so the window, the minutes lost
-// and the red alert are all confirmed in one place; NO clears the window so the row
-// reads blank like the sheet. (Red alert is left alone — it's set independently.)
-const setRainAffect = (row, affected) => {
-  if (!affected) {
-    updateRainRow(row.id, { affectOpt: false, affectStart: "", affectEnd: "" });
-    if (lostTimeDraft.value?.rowId === row.id) closeLostTime();
+// Affect Opt is now an independent YES/NO observation. Red Alert drives its own
+// Start/End window and duration below.
+const setRainAffect = (row, affected) => updateRainRow(row.id, { affectOpt: affected });
+
+// Red Alert = YES seeds the alert window from the rain window and opens a focused
+// pop-up. NO clears the alert window so no stale duration remains on the row.
+const setRainAlert = (row, alerted) => {
+  if (!alerted) {
+    updateRainRow(row.id, { redAlert: false, redAlertStart: "", redAlertEnd: "" });
+    if (redAlertDraft.value?.rowId === row.id) closeRedAlert();
     return;
   }
-  const start = row.affectStart || row.startTime;
-  const end = row.affectEnd || row.endTime;
-  updateRainRow(row.id, { affectOpt: true, affectStart: start, affectEnd: end });
-  lostTimeDraft.value = { rowId: row.id, start, end, redAlert: row.redAlert };
-  nextTick(() => lostStartInput.value?.focus());
+  const start = row.redAlertStart || row.startTime;
+  const end = row.redAlertEnd || row.endTime;
+  updateRainRow(row.id, { redAlert: true, redAlertStart: start, redAlertEnd: end });
+  redAlertDraft.value = { rowId: row.id, start, end };
+  nextTick(() => redAlertStartInput.value?.focus());
 };
 
-// Everything about an affected spell — lost-time window, the minutes it cost and the
-// red alert — is keyed in one small pop-up instead of four inline cells: the row is
-// already wide, and a disabled pair of `--:--` fields is easy to mis-click. It opens
-// on Affect opt = YES, or by clicking either time cell (the clicked one gets focus).
-// It edits a DRAFT and only writes on Done, so Cancel / Esc leaves the row as it was.
-const lostTimeDraft = ref(null); // { rowId, start, end, redAlert } | null
-const lostStartInput = ref(null);
-const lostEndInput = ref(null);
-const lostTimeRow = computed(() => (lostTimeDraft.value ? rainRows.value.find((row) => row.id === lostTimeDraft.value.rowId) : null));
-const lostTimeDraftMinutes = computed(() => (lostTimeDraft.value ? durationMinutes(lostTimeDraft.value.start, lostTimeDraft.value.end) : 0));
+// The dialog edits a draft and writes only on Done, so Cancel / Esc leaves the
+// saved alert window untouched.
+const redAlertDraft = ref(null); // { rowId, start, end } | null
+const redAlertStartInput = ref(null);
+const redAlertEndInput = ref(null);
+const redAlertRow = computed(() => (redAlertDraft.value ? rainRows.value.find((row) => row.id === redAlertDraft.value.rowId) : null));
+const redAlertDraftMinutes = computed(() => (redAlertDraft.value ? durationMinutes(redAlertDraft.value.start, redAlertDraft.value.end) : 0));
 
-const openLostTime = (row, field) => {
-  if (!row.affectOpt) return;
-  lostTimeDraft.value = { rowId: row.id, start: row.affectStart || "", end: row.affectEnd || "", redAlert: row.redAlert };
-  nextTick(() => (field === "end" ? lostEndInput.value?.focus() : lostStartInput.value?.focus()));
+const openRedAlert = (row, field) => {
+  if (!row.redAlert) return;
+  redAlertDraft.value = { rowId: row.id, start: row.redAlertStart || "", end: row.redAlertEnd || "" };
+  nextTick(() => (field === "end" ? redAlertEndInput.value?.focus() : redAlertStartInput.value?.focus()));
 };
-const closeLostTime = () => {
-  lostTimeDraft.value = null;
+const closeRedAlert = () => {
+  redAlertDraft.value = null;
 };
-// Shortcut for the common case: the operation stopped for exactly as long as it rained.
-const useRainWindowForLostTime = () => {
-  if (!lostTimeDraft.value || !lostTimeRow.value) return;
-  lostTimeDraft.value.start = lostTimeRow.value.startTime;
-  lostTimeDraft.value.end = lostTimeRow.value.endTime;
+const useRainWindowForRedAlert = () => {
+  if (!redAlertDraft.value || !redAlertRow.value) return;
+  redAlertDraft.value.start = redAlertRow.value.startTime;
+  redAlertDraft.value.end = redAlertRow.value.endTime;
 };
-const saveLostTime = () => {
-  const draft = lostTimeDraft.value;
+const saveRedAlert = () => {
+  const draft = redAlertDraft.value;
   if (!draft) return;
-  updateRainRow(draft.rowId, { affectStart: draft.start, affectEnd: draft.end, redAlert: draft.redAlert });
-  lostTimeDraft.value = null;
+  updateRainRow(draft.rowId, { redAlertStart: draft.start, redAlertEnd: draft.end });
+  redAlertDraft.value = null;
 };
 
 const onKeyDown = (event) => {
   if (event.key === "Escape") {
-    if (lostTimeDraft.value) {
-      closeLostTime();
+    if (redAlertDraft.value) {
+      closeRedAlert();
     } else if (addingArea.value) {
       addingArea.value = false;
       selectedAddArea.value = miningDataOptions.value[0] ?? "";
@@ -1335,7 +1333,7 @@ onUnmounted(() => {
               </div>
               <div class="area-item-meta">
                 <span><b>{{ card.rows.length }}</b> logs</span>
-                <span><b>{{ card.lost }}</b> min lost</span>
+                <span><b>{{ card.alertDuration }}</b> min red alert</span>
               </div>
             </button>
 
@@ -1368,16 +1366,16 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="detail-loaded">
-            <div class="dl-v mono">{{ selectedRainCard.lost }}</div>
-            <div class="dl-k">Lost minutes</div>
+            <div class="dl-v mono">{{ selectedRainCard.alertDuration }}</div>
+            <div class="dl-k">Red alert minutes</div>
           </div>
         </div>
 
         <div class="detail-plan">
           <span><b>Logs</b>{{ selectedRainCard.rows.length }}</span>
           <span><b>Rain (min)</b>{{ selectedRainCard.rain }}</span>
-          <span><b>Lost (min)</b>{{ selectedRainCard.lost }}</span>
-          <span><b>Red alert</b>{{ selectedRainCard.alerts }}</span>
+          <span><b>Red alert (min)</b>{{ selectedRainCard.alertDuration }}</span>
+          <span><b>Alerts</b>{{ selectedRainCard.alerts }}</span>
         </div>
 
         <section class="exc-panel">
@@ -1390,8 +1388,8 @@ onUnmounted(() => {
           </div>
 
           <p class="modal-hint">
-            One row per rain spell in this pit. Period, Rain duration and Lost time are calculated from the times — set Affect Opt to YES to log the
-            operating time lost. Rows belong to the selected date and shift.
+            One row per rain spell in this pit. Period, Rain duration and Red alert duration are calculated from the times — set Red Alert to YES to
+            log its Start and End. Affect Opt is recorded independently. Rows belong to the selected date and shift.
           </p>
 
           <div class="rain-scroll">
@@ -1403,11 +1401,11 @@ onUnmounted(() => {
               <th>End time</th>
               <th>Period</th>
               <th>Rain duration (min)</th>
-              <th class="rain-group-start">Affect opt</th>
+              <th class="rain-group-start">Red alert</th>
               <th>Start</th>
               <th>End</th>
-              <th>Lost time (min)</th>
-              <th>Red alert</th>
+              <th>Red alert duration (min)</th>
+              <th>Affect opt</th>
               <th class="th-remark">Remark</th>
               <th class="th-x" />
             </tr>
@@ -1439,10 +1437,10 @@ onUnmounted(() => {
               <td class="rain-derived mono" :class="{ muted: rainMinutes(row) === 0 }">{{ rainMinutes(row) }}</td>
               <td class="rain-group-start">
                 <select
-                  class="gt-sel rain-yn"
-                  :class="{ on: row.affectOpt }"
-                  :value="row.affectOpt ? 'YES' : 'NO'"
-                  @change="setRainAffect(row, $event.target.value === 'YES')"
+                  class="gt-sel rain-yn rain-alert"
+                  :class="{ on: row.redAlert }"
+                  :value="row.redAlert ? 'YES' : 'NO'"
+                  @change="setRainAlert(row, $event.target.value === 'YES')"
                 >
                   <option value="NO">NO</option>
                   <option value="YES">YES</option>
@@ -1452,32 +1450,31 @@ onUnmounted(() => {
                 <button
                   class="rain-time-btn mono"
                   type="button"
-                  :disabled="!row.affectOpt"
-                  :title="row.affectOpt ? 'Set the lost time window' : 'Set Affect opt to YES first'"
-                  @click="openLostTime(row, 'start')"
+                  :disabled="!row.redAlert"
+                  :title="row.redAlert ? 'Set the Red Alert window' : 'Set Red Alert to YES first'"
+                  @click="openRedAlert(row, 'start')"
                 >
-                  {{ row.affectStart || "--:--" }}
+                  {{ row.redAlertStart || "--:--" }}
                 </button>
               </td>
               <td>
                 <button
                   class="rain-time-btn mono"
                   type="button"
-                  :disabled="!row.affectOpt"
-                  :title="row.affectOpt ? 'Set the lost time window' : 'Set Affect opt to YES first'"
-                  @click="openLostTime(row, 'end')"
+                  :disabled="!row.redAlert"
+                  :title="row.redAlert ? 'Set the Red Alert window' : 'Set Red Alert to YES first'"
+                  @click="openRedAlert(row, 'end')"
                 >
-                  {{ row.affectEnd || "--:--" }}
+                  {{ row.redAlertEnd || "--:--" }}
                 </button>
               </td>
-              <!-- Lost-time window itself is keyed in the pop-up below (TimeField there). -->
-              <td class="rain-derived mono" :class="{ muted: lostMinutes(row) === 0 }">{{ lostMinutes(row) }}</td>
+              <td class="rain-derived mono" :class="{ muted: redAlertMinutes(row) === 0 }">{{ redAlertMinutes(row) }}</td>
               <td>
                 <select
-                  class="gt-sel rain-yn rain-alert"
-                  :class="{ on: row.redAlert }"
-                  :value="row.redAlert ? 'YES' : 'NO'"
-                  @change="setRainField(row, 'redAlert', $event.target.value === 'YES')"
+                  class="gt-sel rain-yn"
+                  :class="{ on: row.affectOpt }"
+                  :value="row.affectOpt ? 'YES' : 'NO'"
+                  @change="setRainAffect(row, $event.target.value === 'YES')"
                 >
                   <option value="NO">NO</option>
                   <option value="YES">YES</option>
@@ -1507,10 +1504,10 @@ onUnmounted(() => {
             <tr>
               <td class="tf-label" colspan="4">Totals</td>
               <td>{{ selectedRainCard.rain }}</td>
-              <td colspan="3" />
-              <td class="tf-grand">{{ selectedRainCard.lost }}</td>
               <td>{{ selectedRainCard.alerts }}</td>
               <td colspan="2" />
+              <td class="tf-grand">{{ selectedRainCard.alertDuration }}</td>
+              <td colspan="3" />
             </tr>
           </tfoot>
             </table>
@@ -1524,53 +1521,41 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <div v-if="lostTimeDraft && lostTimeRow" class="modal-overlay" @mousedown.self="closeLostTime">
-        <div class="modal lost-time-modal" role="dialog" aria-modal="true" aria-label="Affected operation">
+    <div v-if="redAlertDraft && redAlertRow" class="modal-overlay" @mousedown.self="closeRedAlert">
+        <div class="modal red-alert-modal" role="dialog" aria-modal="true" aria-label="Red alert window">
           <div class="modal-head">
             <div class="modal-title">
-              <span class="exc mono">Affect operation</span>
-              <span class="chip">{{ lostTimeRow.areaCode || "-" }}</span>
-              <span class="sub">Rain {{ periodLabel(lostTimeRow) || "--:-- - --:--" }} ({{ rainMinutes(lostTimeRow) }} min)</span>
+              <span class="exc mono">Red alert</span>
+              <span class="chip">{{ redAlertRow.areaCode || "-" }}</span>
+              <span class="sub">Rain {{ periodLabel(redAlertRow) || "--:-- - --:--" }} ({{ rainMinutes(redAlertRow) }} min)</span>
             </div>
-            <button class="modal-x" type="button" aria-label="Close" @click="closeLostTime">x</button>
+            <button class="modal-x" type="button" aria-label="Close" @click="closeRedAlert">x</button>
           </div>
 
           <div class="modal-body">
-            <p class="modal-hint">The stretch of this rain spell that stopped the operation. Lost time = End - Start.</p>
-            <div class="lost-time-fields">
+            <p class="modal-hint">Set the Red Alert window. Red alert duration = End - Start.</p>
+            <div class="red-alert-fields">
               <div class="entry-field">
                 <span>Start</span>
-                <TimeField ref="lostStartInput" v-model="lostTimeDraft.start" label="Lost time start" />
+                <TimeField ref="redAlertStartInput" v-model="redAlertDraft.start" label="Red alert start" />
               </div>
               <div class="entry-field">
                 <span>End</span>
-                <TimeField ref="lostEndInput" v-model="lostTimeDraft.end" label="Lost time end" />
+                <TimeField ref="redAlertEndInput" v-model="redAlertDraft.end" label="Red alert end" />
               </div>
-              <label class="entry-field lost-time-alert">
-                <span>Red alert</span>
-                <select
-                  class="gt-sel rain-yn rain-alert"
-                  :class="{ on: lostTimeDraft.redAlert }"
-                  :value="lostTimeDraft.redAlert ? 'YES' : 'NO'"
-                  @change="lostTimeDraft.redAlert = $event.target.value === 'YES'"
-                >
-                  <option value="NO">NO</option>
-                  <option value="YES">YES</option>
-                </select>
-              </label>
-              <div class="lost-time-result">
-                <b class="mono">{{ lostTimeDraftMinutes }}</b>
-                <span>Lost time (min)</span>
+              <div class="red-alert-result">
+                <b class="mono">{{ redAlertDraftMinutes }}</b>
+                <span>Red alert duration (min)</span>
               </div>
             </div>
-            <button class="add-row" type="button" @click="useRainWindowForLostTime">= Same as the rain window</button>
+            <button class="add-row" type="button" @click="useRainWindowForRedAlert">= Same as the rain window</button>
           </div>
 
         <div class="modal-foot">
           <span class="foot-note">Nothing is saved until you press Done.</span>
           <div class="foot-actions">
-            <button class="btn" type="button" @click="closeLostTime">Cancel</button>
-            <button class="btn btn-primary" type="button" @click="saveLostTime">Done</button>
+            <button class="btn" type="button" @click="closeRedAlert">Cancel</button>
+            <button class="btn btn-primary" type="button" @click="saveRedAlert">Done</button>
           </div>
         </div>
       </div>
