@@ -201,7 +201,7 @@ function buildChart(rows) {
                   <td class="rr-tf-label">Total</td>
                   <td />
                   <td class="mono num">{{ pit.totals.rain }}</td>
-                  <td class="mono num">{{ pit.totals.alerts }}</td>
+                  <td />
                   <td class="mono num">{{ pit.totals.alertDuration }}</td>
                   <td />
                   <td />
