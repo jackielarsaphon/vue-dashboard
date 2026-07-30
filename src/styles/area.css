@@ -193,7 +193,6 @@
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.rr-metric.alert b { color: var(--alert); }
 .rr-pits {
   display: flex;
   flex-direction: column;

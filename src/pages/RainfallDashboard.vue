@@ -63,9 +63,8 @@ const pits = computed(() => {
       (acc, row) => ({
         rain: acc.rain + rainMinutes(row),
         alertDuration: acc.alertDuration + redAlertMinutes(row),
-        alerts: acc.alerts + (row.redAlert ? 1 : 0),
       }),
-      { rain: 0, alertDuration: 0, alerts: 0 },
+      { rain: 0, alertDuration: 0 },
     );
     return { name, color: PIT_COLORS[index % PIT_COLORS.length], rows, totals, chart: buildChart(rows) };
   });
@@ -76,9 +75,8 @@ const dayTotals = computed(() =>
     (acc, pit) => ({
       rain: acc.rain + pit.totals.rain,
       alertDuration: acc.alertDuration + pit.totals.alertDuration,
-      alerts: acc.alerts + pit.totals.alerts,
     }),
-    { rain: 0, alertDuration: 0, alerts: 0 },
+    { rain: 0, alertDuration: 0 },
   ),
 );
 
@@ -143,20 +141,12 @@ function buildChart(rows) {
       </div>
       <div class="rr-summary-metrics">
         <div class="rr-metric">
-          <b class="mono">{{ dateRows.length }}</b>
-          <span>Rain records</span>
-        </div>
-        <div class="rr-metric">
           <b class="mono">{{ dayTotals.rain }}</b>
           <span>Rain duration (min)</span>
         </div>
         <div class="rr-metric">
           <b class="mono">{{ dayTotals.alertDuration }}</b>
           <span>Red alert duration (min)</span>
-        </div>
-        <div class="rr-metric" :class="{ alert: dayTotals.alerts > 0 }">
-          <b class="mono">{{ dayTotals.alerts }}</b>
-          <span>Red alert</span>
         </div>
       </div>
     </section>
