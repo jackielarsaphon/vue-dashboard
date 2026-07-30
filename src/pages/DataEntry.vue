@@ -1204,7 +1204,7 @@ onUnmounted(() => {
           <div class="area-side-head">
             <h2>Excavators - {{ detailRows.length }} units</h2>
             <div style="display: flex; gap: 8px; align-items: center">
-              <ExcelExportButton :busy="exportingTrips" @click="exportTripReport" />
+              <ExcelExportButton :busy="exportingTrips" label="Export Excavator" @click="exportTripReport" />
               <button
                 v-if="hasUnusedRow"
                 class="btn"
