@@ -295,7 +295,9 @@ table.rr-table tfoot td.rr-tf-label {
   text-transform: uppercase;
   color: var(--ink-3);
 }
-.rr-chart-panel { background: var(--panel-2); min-width: 0; }
+/* Plain panel background (white in light theme) so the bars sit on the same sheet
+   colour as the table beside them. */
+.rr-chart-panel { background: var(--panel); min-width: 0; }
 .rr-chart-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
 .rr-chart-head h2 { text-transform: none; letter-spacing: 0.04em; font-size: 13px; color: var(--ink); }
 /* Wide days scroll inside the panel instead of squashing the bars. */
@@ -303,7 +305,9 @@ table.rr-table tfoot td.rr-tf-label {
 .rr-chart-scroll::-webkit-scrollbar { height: 6px; }
 .rr-chart-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 /* Cap the height so a short day's chart doesn't scale up to a wall of white space
-   beside its 4-row table; the viewBox keeps the drawing centred and undistorted. */
+   beside its 4-row table. The viewBox stretches to the panel width instead (see
+   CHART.minPlot) and preserveAspectRatio pins it left, so the drawing starts at the
+   axis rather than floating in the middle of the panel. */
 .rr-chart { display: block; max-width: none; max-height: 260px; }
 .chart .rr-axis-y { font-size: 9px; }
 .rr-chart-empty {

@@ -79,10 +79,11 @@ const dayTotals = computed(() =>
 );
 
 // --- chart ------------------------------------------------------------------
-// Grouped bars per period: Rain duration (blue) beside Lost time (red). The
-// viewBox grows with the number of periods and the SVG scales to the panel width,
-// so a long rainy day stays readable instead of squashing into the same box.
-const CHART = { H: 240, padT: 26, padR: 12, padB: 42, padL: 40, group: 92, gap: 10 };
+// Grouped bars per period: Rain duration (blue) beside Lost time (red). The viewBox
+// grows with the number of periods, so a long rainy day stays readable instead of
+// squashing into the same box; a short one stretches to MIN_PLOT instead so the
+// drawing fills the panel rather than floating as a small block in the middle.
+const CHART = { H: 240, padT: 26, padR: 12, padB: 42, padL: 40, group: 92, gap: 10, minPlot: 560 };
 
 function buildChart(rows) {
   const groups = rows.map((row) => ({
@@ -94,18 +95,22 @@ function buildChart(rows) {
   // Round the axis up to the next 20 with headroom for the value labels, and never
   // flatten to zero when nothing was logged.
   const yMax = Math.max(20, Math.ceil((peak * 1.2) / 20) * 20);
-  const plotW = Math.max(CHART.group * groups.length, 1);
+  const plotW = Math.max(CHART.group * groups.length, CHART.minPlot);
   const W = CHART.padL + plotW + CHART.padR;
   const plotH = CHART.H - CHART.padT - CHART.padB;
   const baseY = CHART.padT + plotH;
-  const barW = Math.min(26, (CHART.group - CHART.gap * 3) / 2);
+  // Each period gets an equal slice of the plot; the pair of bars sits in the middle
+  // of its slice, widening with it (up to a limit) so a two-period day doesn't read
+  // as two hairlines lost in the panel.
+  const groupW = plotW / Math.max(1, groups.length);
+  const barW = Math.max(14, Math.min(44, (groupW - CHART.gap * 3) / 2));
   const y = (value) => baseY - (value / yMax) * plotH;
 
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((fraction) => ({ value: Math.round(yMax * fraction), y: baseY - plotH * fraction }));
 
   const bars = groups.map((group, index) => {
-    const left = CHART.padL + CHART.group * index;
-    const center = left + CHART.group / 2;
+    const left = CHART.padL + groupW * index;
+    const center = left + groupW / 2;
     return {
       key: `${group.period}-${index}`,
       period: group.period,
@@ -209,7 +214,12 @@ function buildChart(rows) {
 
             <div v-if="pit.chart.empty" class="rr-chart-empty">No rainfall logged for this date.</div>
             <div v-else class="rr-chart-scroll">
-              <svg :viewBox="`0 0 ${pit.chart.W} ${pit.chart.H}`" class="chart rr-chart" :style="{ minWidth: `${pit.chart.W}px` }">
+              <svg
+                :viewBox="`0 0 ${pit.chart.W} ${pit.chart.H}`"
+                class="chart rr-chart"
+                preserveAspectRatio="xMinYMid meet"
+                :style="{ minWidth: `${pit.chart.W}px` }"
+              >
                 <g v-for="tick in pit.chart.ticks" :key="tick.value">
                   <line :x1="pit.chart.padL" :x2="pit.chart.W - pit.chart.padR" :y1="tick.y" :y2="tick.y" class="grid" />
                   <text :x="pit.chart.padL - 6" :y="tick.y + 3" class="axis" text-anchor="end">{{ tick.value }}</text>
