@@ -308,18 +308,6 @@ table.rr-table td.rr-empty {
   color: var(--ink-3);
   padding: 18px 8px;
 }
-table.rr-table tfoot td {
-  background: var(--panel-2);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-table.rr-table tfoot td.rr-tf-label {
-  text-align: left;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
 /* Plain panel background (white in light theme) so the bars sit on the same sheet
    colour as the table beside them. */
 .rr-chart-panel { background: var(--panel); min-width: 0; }
