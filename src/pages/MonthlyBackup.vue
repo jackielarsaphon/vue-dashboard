@@ -51,8 +51,8 @@ onMounted(load);
         <span class="sum-k">Monthly data backup</span>
         <h1>Monthly backup</h1>
         <p>
-          สำรองข้อมูลของเดือนที่เลือกเป็นไฟล์ JSON ครบทั้ง Production, Rainfall, Plan/Target
-          และข้อมูลตั้งค่าหลักที่จำเป็นต่อความสัมพันธ์ของข้อมูล
+          สำรองข้อมูลของเดือนที่เลือกเป็นไฟล์ Excel (.xlsx) โดยมีชีต Summary และแยกหนึ่งชีตต่อหนึ่งตาราง
+          ครบทั้ง Production, Rainfall, Plan/Target และข้อมูลตั้งค่าหลัก
         </p>
       </div>
       <div class="mining-total mono" :title="`${fmt(summary.total_rows)} rows`">
@@ -85,7 +85,7 @@ onMounted(load);
               @click="download(month)"
             >
               <span aria-hidden="true">↓</span>
-              {{ downloading ? "Preparing…" : "Download JSON backup" }}
+              {{ downloading ? "Preparing…" : "Download Excel backup" }}
             </button>
           </div>
         </div>
@@ -160,8 +160,8 @@ onMounted(load);
 
         <div class="monthly-note">
           <b>Safe, read-only backup.</b>
-          การดาวน์โหลดไม่แก้ไขหรือลบข้อมูลในฐานข้อมูล ไฟล์จะรวมข้อมูลรายเดือนและ snapshot
-          ของข้อมูลตั้งค่าหลัก แต่จะไม่รวมตาราง <span class="mono">users</span>
+          การดาวน์โหลดไม่แก้ไขหรือลบข้อมูลในฐานข้อมูล ไฟล์ Excel จะแยกข้อมูลแต่ละตารางเป็นคนละชีต
+          และรวม snapshot ของข้อมูลตั้งค่าหลัก แต่จะไม่รวมตาราง <span class="mono">users</span>
           เพื่อป้องกันบัญชีผู้ใช้และรหัสผ่าน
         </div>
       </section>

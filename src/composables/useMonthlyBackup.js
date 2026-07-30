@@ -1,5 +1,7 @@
 import { ref } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
+import { downloadXlsx } from "../lib/xlsx.js";
+import { buildMonthlyBackupSheets } from "../lib/monthlyBackupWorkbook.js";
 
 const PAGE_SIZE = 1000;
 const SHIFT_CHUNK_SIZE = 60;
@@ -187,8 +189,8 @@ const readMonth = async (month) => {
   const generatedAt = new Date().toISOString();
   return {
     backup: {
-      format: "thaidrill-monthly-backup",
-      version: 1,
+      format: "thaidrill-monthly-backup-xlsx",
+      version: 2,
       generated_at: generatedAt,
       month,
       date_range: { from, to },
@@ -214,18 +216,9 @@ const readMonth = async (month) => {
   };
 };
 
-const triggerJsonDownload = (month, backup) => {
-  const json = JSON.stringify(backup, null, 2);
-  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const filename = `thaidrill-monthly-backup-${month}.json`;
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+const triggerExcelDownload = (month, backup, tableInventory) => {
+  const filename = `thaidrill-monthly-backup-${month}.xlsx`;
+  downloadXlsx(filename, buildMonthlyBackupSheets(backup, tableInventory));
   return filename;
 };
 
@@ -284,7 +277,7 @@ export function useMonthlyBackup() {
     try {
       if (scannedMonth.value !== month && !(await scan(month))) return;
       if (!snapshot.value) return;
-      lastDownload.value = triggerJsonDownload(month, snapshot.value);
+      lastDownload.value = triggerExcelDownload(month, snapshot.value, inventory.value);
     } catch (downloadError) {
       console.error("Monthly backup download failed", downloadError);
       error.value = downloadError?.message
