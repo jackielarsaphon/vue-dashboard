@@ -146,7 +146,7 @@
 }
 /* =============================================================================
    Rainfall dashboard (/rainfall) — one block per pit for the selected date: the
-   sheet's table on the left, its Rain duration / Lost time bars on the right.
+   sheet's table on the left, its Rain duration / Red alert duration bars on the right.
    ============================================================================= */
 .rain-dash { grid-template-rows: auto auto auto 1fr; }
 .rr-summary {
@@ -228,16 +228,18 @@
 .rr-pit-body {
   display: grid;
   /* The table carries the Remark text, so give it the wider column. */
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
   min-width: 0;
 }
 .rr-table-wrap { overflow-x: auto; min-width: 0; }
 table.rr-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: auto;
 }
 table.rr-table th {
   /* Header colour is set inline per pit (see PIT_COLORS) — white text over it. */
@@ -248,8 +250,16 @@ table.rr-table th {
   padding: 7px 8px;
   border: 1px solid var(--line);
   text-align: center;
-  white-space: nowrap;
+  line-height: 1.2;
+  white-space: normal;
 }
+table.rr-table th:nth-child(1) { width: 13.5%; }
+table.rr-table th:nth-child(2) { width: 13.5%; }
+table.rr-table th:nth-child(3) { width: 15.5%; }
+table.rr-table th:nth-child(4) { width: 9.5%; }
+table.rr-table th:nth-child(5) { width: 14%; }
+table.rr-table th:nth-child(6) { width: 12%; }
+table.rr-table th:nth-child(7) { width: 22%; }
 table.rr-table td {
   padding: 6px 8px;
   border: 1px solid var(--line);
@@ -260,13 +270,28 @@ table.rr-table td {
 table.rr-table td.num { font-variant-numeric: tabular-nums; }
 /* Period reads as one token ("09:00-10:00"), never split over two lines. */
 table.rr-table td:first-child { white-space: nowrap; }
+/* Mirror the source sheet's rainfall-intensity colour scale. */
+table.rr-table td.rr-intensity {
+  font-weight: 600;
+  white-space: nowrap;
+}
+table.rr-table td.rr-intensity.is-light {
+  background: color-mix(in srgb, var(--alert) 10%, var(--panel-2));
+}
+table.rr-table td.rr-intensity.is-moderate {
+  background: color-mix(in srgb, var(--alert) 24%, var(--panel-2));
+}
+table.rr-table td.rr-intensity.is-heavy {
+  background: var(--alert);
+  color: #fff;
+}
 table.rr-table td.rr-remark {
   text-align: left;
-  white-space: pre-wrap;
+  white-space: nowrap;
   color: var(--ink-2);
-  min-width: 140px;
-  /* Long Thai remarks wrap inside the cell instead of widening the table. */
-  overflow-wrap: anywhere;
+  /* Keep the complete note on one line and let the column grow with it. */
+  overflow-wrap: normal;
+  word-break: normal;
 }
 /* Affect operation / Red Alert cells keep the sheet's traffic-light fills. */
 table.rr-table td.rr-yes {
@@ -330,4 +355,7 @@ table.rr-table tfoot td.rr-tf-label {
   .rr-summary { align-items: flex-start; }
   .rr-summary-metrics { gap: 16px; }
   .rr-metric b { font-size: 18px; }
+  /* Keep the live mobile view readable; the image-export clone removes this
+     minimum width so the complete sheet still appears in one downloaded image. */
+  table.rr-table { min-width: 760px; }
 }

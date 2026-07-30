@@ -15,7 +15,7 @@ import TweakColor from "../components/common/TweakColor.vue";
 
 // Rainfall dashboard — the read-only report of what Data entry step 3 logged, one
 // block per pit for the selected DATE (both shifts): the sheet's table on the left,
-// its Rain duration / Lost time bar chart on the right.
+// its Rain duration / Red alert duration bar chart on the right.
 const [t, setTweak] = useTweaks({
   accent: "#d99a00",
   density: "compact",
@@ -148,7 +148,7 @@ function buildChart(rows) {
         </div>
         <div class="rr-metric">
           <b class="mono">{{ dayTotals.lost }}</b>
-          <span>Lost time (min)</span>
+          <span>Red alert duration (min)</span>
         </div>
         <div class="rr-metric" :class="{ alert: dayTotals.alerts > 0 }">
           <b class="mono">{{ dayTotals.alerts }}</b>
@@ -170,33 +170,36 @@ function buildChart(rows) {
               <thead>
                 <tr :style="{ background: pit.color }">
                   <th>Period</th>
+                  <th>Rainfall Intensity</th>
                   <th>Rain Duration (Min)</th>
-                  <th>Affect operation</th>
-                  <th>Lost Time Operation (Min)</th>
                   <th>Red Alert</th>
+                  <th>Red Alert Duration</th>
+                  <th>Affect operation</th>
                   <th class="rr-th-remark">Remark</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in pit.rows" :key="row.id">
                   <td class="mono">{{ periodLabel(row) || "—" }}</td>
+                  <td class="rr-intensity" :class="`is-${String(row.intensity || 'clear').toLowerCase()}`">{{ row.intensity || "Clear" }}</td>
                   <td class="mono num">{{ rainMinutes(row) }}</td>
-                  <td :class="row.affectOpt ? 'rr-yes' : 'rr-no'">{{ row.affectOpt ? "YES" : "NO" }}</td>
-                  <td class="mono num">{{ lostMinutes(row) }}</td>
                   <td :class="{ 'rr-yes': row.redAlert }">{{ row.redAlert ? "YES" : "" }}</td>
+                  <td class="mono num">{{ lostMinutes(row) }}</td>
+                  <td :class="row.affectOpt ? 'rr-yes' : 'rr-no'">{{ row.affectOpt ? "YES" : "NO" }}</td>
                   <td class="rr-remark">{{ row.remark }}</td>
                 </tr>
                 <tr v-if="pit.rows.length === 0">
-                  <td class="rr-empty" colspan="6">No rainfall logged for this date.</td>
+                  <td class="rr-empty" colspan="7">No rainfall logged for this date.</td>
                 </tr>
               </tbody>
               <tfoot v-if="pit.rows.length > 0">
                 <tr>
                   <td class="rr-tf-label">Total</td>
-                  <td class="mono num">{{ pit.totals.rain }}</td>
                   <td />
-                  <td class="mono num">{{ pit.totals.lost }}</td>
+                  <td class="mono num">{{ pit.totals.rain }}</td>
                   <td class="mono num">{{ pit.totals.alerts }}</td>
+                  <td class="mono num">{{ pit.totals.lost }}</td>
+                  <td />
                   <td />
                 </tr>
               </tfoot>
@@ -208,7 +211,7 @@ function buildChart(rows) {
               <h2>Rainfall Record {{ pit.name }}</h2>
               <div class="legend mono">
                 <span><span class="lg-dot" style="background: var(--cool)" />Rain Duration (Min)</span>
-                <span><span class="lg-dot ml" style="background: var(--alert)" />Lost Time Operation (Min)</span>
+                <span><span class="lg-dot ml" style="background: var(--alert)" />Red Alert Duration</span>
               </div>
             </div>
 

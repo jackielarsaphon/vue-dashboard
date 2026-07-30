@@ -78,6 +78,56 @@ const revealInlineLogos = (clonedDoc) => {
   });
 };
 
+const CAPTURE_ROOT_ATTR = "data-image-capture-root";
+
+// The Rainfall report may contain a no-wrap Remark plus a horizontally growing
+// chart. Measure both columns before cloning so the export canvas can be widened
+// enough to contain them side by side instead of clipping either scroll region.
+const fullReportWidth = (node) => {
+  let width = Math.max(node.clientWidth, node.scrollWidth);
+  node.querySelectorAll(".rr-pit-body").forEach((body) => {
+    const table = body.querySelector("table.rr-table");
+    const chart = body.querySelector(".rr-chart");
+    const tableWidth = table ? table.scrollWidth : 0;
+    const chartWidth = chart ? chart.scrollWidth : 0;
+    // Allow for the pit padding, the table/chart gap and their panel borders.
+    width = Math.max(width, tableWidth + chartWidth + 96);
+  });
+  return Math.ceil(width);
+};
+
+// A horizontally scrollable report table can be left partway across by the user.
+// html2canvas copies that scroll position into its cloned document, which would cut
+// the Period column off the exported image. Keep the cloned table at its full
+// content width so every column and the one-line Remark remain in the capture.
+const showFullReportContent = (clonedDoc, captureWidth) => {
+  const root = clonedDoc.querySelector(`[${CAPTURE_ROOT_ATTR}]`);
+  if (root) {
+    root.style.width = `${captureWidth}px`;
+    root.style.maxWidth = "none";
+    root.style.overflow = "visible";
+  }
+  clonedDoc.querySelectorAll(".rr-pit-body").forEach((el) => {
+    el.style.gridTemplateColumns = "max-content minmax(560px, 1fr)";
+  });
+  clonedDoc.querySelectorAll(".rr-table-wrap").forEach((el) => {
+    el.scrollLeft = 0;
+    el.style.overflowX = "visible";
+    el.style.width = "max-content";
+    el.style.maxWidth = "none";
+  });
+  clonedDoc.querySelectorAll("table.rr-table").forEach((el) => {
+    el.style.width = "max-content";
+    el.style.minWidth = "100%";
+    el.style.maxWidth = "none";
+  });
+  clonedDoc.querySelectorAll(".rr-chart-scroll").forEach((el) => {
+    el.scrollLeft = 0;
+    el.style.overflowX = "visible";
+    el.style.maxWidth = "none";
+  });
+};
+
 // Stamp the company logo above the capture for pages with no room for it inline.
 // Sizes are relative to the canvas width, so the band scales with the export
 // resolution; the logo sits right on top of the content with only a thin gutter
@@ -132,19 +182,23 @@ export function useDownloadImage(fileName) {
       const inlineLogo = node.scrollWidth >= 560 && findInlineLogos(node).length > 0;
       const rootStyles = getComputedStyle(document.documentElement);
       const bg = rootStyles.getPropertyValue("--bg").trim() || getComputedStyle(document.body).backgroundColor || "#ffffff";
+      const captureWidth = fullReportWidth(node);
+      node.setAttribute(CAPTURE_ROOT_ATTR, "");
       // Render at ~4K width for a crisp export: scale so the output is at least 3840px
-      // wide whatever the screen size, capped at 4× to keep memory sane and never below
-      // the 2× we used before.
-      const scale = Math.min(4, Math.max(2, 3840 / (node.scrollWidth || 3840)));
+      // wide where practical. Very wide no-wrap remarks use a lower scale so the
+      // complete canvas stays within a reasonable memory footprint.
+      const scale = Math.min(4, Math.max(1, 3840 / (captureWidth || 3840)));
       const canvas = await html2canvas(node, {
         backgroundColor: bg,
         scale,
         useCORS: true,
         logging: false,
-        windowWidth: node.scrollWidth,
+        width: captureWidth,
+        windowWidth: captureWidth,
         ignoreElements: (el) => el.classList?.contains("no-capture") || el.classList?.contains("twk-panel"),
         onclone: (clonedDoc) => {
           stripUnsupportedColorFns(clonedDoc);
+          showFullReportContent(clonedDoc, captureWidth);
           if (inlineLogo) revealInlineLogos(clonedDoc);
         },
       });
@@ -156,6 +210,7 @@ export function useDownloadImage(fileName) {
     } catch (err) {
       console.error("Download image failed", err);
     } finally {
+      node.removeAttribute(CAPTURE_ROOT_ATTR);
       downloading.value = false;
     }
   };
