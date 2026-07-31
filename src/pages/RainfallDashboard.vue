@@ -50,7 +50,13 @@ const clockDate = computed(() => {
   const month = MONTHS[Number(m) - 1];
   return d && month && y ? `${Number(d)} ${month}` : "";
 });
-const clockRange = computed(() => (selection.shiftType === "Night" ? "18:00-06:00" : "06:00-18:00"));
+// Follows the top bar's HOUR box, same as the Fleet / Area clock cards — the fixed
+// shift window it used to show never moved when the selection did.
+const clockRange = computed(() => {
+  const a = String(selection.hour).padStart(2, "0");
+  const b = String((selection.hour + 1) % 24).padStart(2, "0");
+  return `${a}:00-${b}:00`;
+});
 
 // Each pit gets its own header colour, cycling this palette — the sheet colours the
 // first pit's header dark red and the second gold. Theme variables, so both themes work.
