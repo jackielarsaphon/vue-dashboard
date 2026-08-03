@@ -52,21 +52,41 @@ export function createTableStore<T extends { id: string }>(options: TableStoreOp
   let loadedAt = 0;
   let inflight: Promise<StoreResult<T[]>> | null = null;
 
+  // PostgREST answers a plain select with AT MOST its max-rows (1000 on this project)
+  // and says nothing about the rest. area_excavators crossed that line, and because
+  // this store orders by created_at ascending, the rows silently dropped were the
+  // NEWEST placements — so every excavator added to a pit recently vanished from Data
+  // entry after a reload (it was still there in the session that created it, since
+  // create() appends to `items` locally). Page through instead of trusting one
+  // response to be the whole table.
+  const PAGE = 1000;
+  const MAX_PAGES = 50; // 50k rows — a backstop, not an expected limit
+
   const read = async (): Promise<StoreResult<T[]>> => {
     loading.value = true;
     error.value = "";
 
-    let query = supabase.from(table).select("*");
-    if (orderBy) query = query.order(orderBy, { ascending });
-    const { data, error: loadError } = await query;
+    const all: T[] = [];
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const from = page * PAGE;
+      let query = supabase.from(table).select("*");
+      if (orderBy) query = query.order(orderBy, { ascending });
+      const { data, error: loadError } = await query.range(from, from + PAGE - 1);
 
-    loading.value = false;
-    if (loadError) {
-      error.value = loadError.message;
-      return { ok: false, error: error.value };
+      if (loadError) {
+        loading.value = false;
+        error.value = loadError.message;
+        return { ok: false, error: error.value };
+      }
+
+      const rows = (data ?? []) as T[];
+      all.push(...rows);
+      // A short page is the last one; a full page means there may be more.
+      if (rows.length < PAGE) break;
     }
 
-    items.value = (data ?? []) as T[];
+    loading.value = false;
+    items.value = all;
     loadedAt = Date.now();
     return { ok: true, data: items.value };
   };
