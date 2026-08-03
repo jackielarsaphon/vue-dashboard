@@ -6,8 +6,17 @@ import { reactive, ref } from "vue";
 // The DATE is the deliberate exception: it is a single SHARED value across every
 // page, so picking a date on any page moves them all. See [[selection-per-page]]
 // — shift/hour stay decoupled; only the date is coupled.
+//
+// One pairing on top of that: Area production and Rainfall are read side by side
+// (the rain that cost those hours), so they SHARE one shift/hour slot — pick the
+// hour on either and the other is already on it. Fleet and Data entry stay on
+// their own slots.
 const LS_KEY = "prod-shift-selection-v2";
 const DATE_KEY = "prod-shared-date-v1";
+
+// pageKey -> slot name. Pages absent from this map get a slot of their own.
+const SHARED_SLOTS = { area: "area+rainfall", rainfall: "area+rainfall" };
+const slotKeyFor = (pageKey) => SHARED_SLOTS[pageKey] || pageKey;
 
 // selection.date is yyyy-mm-dd (matches <input type="date">).
 const todayIso = () => {
@@ -90,13 +99,17 @@ const persistDate = () => {
 // a page is seen. Called by TopBar whenever the route changes. Shift/hour come from
 // the page's slot; the date is the shared value, so it carries across pages.
 const setActivePage = (pageKey) => {
-  if (!pageKey || pageKey === activeKey) return;
-  activeKey = pageKey;
-  const slot = slots[pageKey] || (slots[pageKey] = defaults());
+  if (!pageKey) return;
+  // Pages sharing a slot (area / rainfall) resolve to the same key, so moving
+  // between them keeps the selection exactly where it was.
+  const key = slotKeyFor(pageKey);
+  if (key === activeKey) return;
+  activeKey = key;
+  const slot = slots[key] || (slots[key] = defaults());
   selection.date = sharedDate;
   selection.shiftType = slot.shiftType === "Day" ? "Day" : "Night";
   selection.hour = Number.isInteger(slot.hour) ? slot.hour : new Date().getHours();
-  userAdjusted.value = !!adjustedByPage[pageKey];
+  userAdjusted.value = !!adjustedByPage[key];
 };
 
 // Mirror the active selection back into its page slot so shift/hour survive
