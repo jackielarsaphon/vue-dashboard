@@ -1,5 +1,9 @@
 import { computed, ref, watch } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
+import { createDateLoader } from "../lib/dateLoader.js";
+import { dropDate, dropDates, keepDates } from "../lib/dropDate.js";
+import { PRELOAD_DAYS } from "../lib/recentDates.js";
+import { shiftIndexForDates } from "./useShiftIds.js";
 import { useShiftSelection } from "./useShiftSelection.js";
 import { useEntryStore } from "./useEntryStore.js";
 import { useAppAreas } from "./useAppAreas.js";
@@ -144,14 +148,21 @@ const blankRow = (init = {}) => ({
 const localId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `rain-${Math.random().toString(36).slice(2)}-${Date.now()}`);
 
 // --- load -------------------------------------------------------------------
-const fetchLogs = async (date) => {
+// One query for the whole span asked for (the shifts lookup is shared with the other
+// date-scoped stores), and none at all for a date already loaded — see the loader
+// below. `skipLoaded` keeps the opening batch from writing over a date on screen.
+const fetchDatesLogs = async (dateList, { skipLoaded = false } = {}) => {
+  const dates = [...new Set(dateList)].filter(Boolean).sort();
+  if (!dates.length) return;
   loading.value = true;
 
-  const { data: shifts, error: shiftError } = await supabase.from("shifts").select("id, shift_type").eq("shift_date", date);
-  const shiftTypeById = shiftError ? {} : Object.fromEntries((shifts || []).map((row) => [row.id, row.shift_type]));
-  const shiftIds = Object.keys(shiftTypeById);
+  const { ids: shiftIds, typeById: shiftTypeById, dateById: shiftDateById } = await shiftIndexForDates(dates);
 
-  const next = { [logKey(date, "Day")]: [], [logKey(date, "Night")]: [] };
+  const next = {};
+  dates.forEach((date) => {
+    next[logKey(date, "Day")] = [];
+    next[logKey(date, "Night")] = [];
+  });
 
   if (shiftIds.length && !tableMissing) {
     const { data, error } = await supabase
@@ -165,17 +176,35 @@ const fetchLogs = async (date) => {
     } else if (!error && data) {
       data.forEach((record) => {
         const shiftType = shiftTypeById[record.shift_id];
-        if (!shiftType) return;
-        next[logKey(date, shiftType)].push(toRow(record));
+        const recordDate = shiftDateById[record.shift_id];
+        if (!shiftType || !recordDate) return;
+        next[logKey(recordDate, shiftType)].push(toRow(record));
       });
     }
   }
 
-  logsByKey.value = { ...logsByKey.value, ...next };
+  const commit = dates.filter((d) => !(skipLoaded && logsLoader.isLoaded(d)));
+  if ((!skipLoaded && !logsLoader.isCurrent(dates[0])) || !commit.length) {
+    loading.value = false;
+    return;
+  }
+
+  logsByKey.value = { ...dropDates(logsByKey.value, commit), ...keepDates(next, commit) };
+  if (skipLoaded) commit.forEach((d) => logsLoader.markLoaded(d));
   loading.value = false;
 };
 
-watch(() => selection.date, (date) => fetchLogs(date), { immediate: true });
+const fetchLogs = (date) => fetchDatesLogs([date]);
+
+const logsLoader = createDateLoader({
+  load: fetchLogs,
+  keep: PRELOAD_DAYS + 3,
+  onEvict: (date) => {
+    logsByKey.value = dropDate(logsByKey.value, date);
+  },
+});
+
+watch(() => selection.date, (date) => logsLoader.request(date), { immediate: true });
 
 const currentKey = computed(() => logKey(selection.date, selection.shiftType));
 // Rows for the selected date + shift — what step 3 renders.
@@ -354,5 +383,6 @@ export const useRainfallLog = () => ({
   addRow,
   updateRow,
   removeRow,
-  reload: () => fetchLogs(selection.date),
+  reload: () => logsLoader.request(selection.date, { force: true }),
+  preloadDates: (dates) => fetchDatesLogs(dates, { skipLoaded: true }),
 });

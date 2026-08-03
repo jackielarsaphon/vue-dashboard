@@ -13,11 +13,16 @@ export interface TableStoreOptions {
   ascending?: boolean;
 }
 
+export interface LoadOptions {
+  /** Re-read the table even if it was just loaded (after inserting a row, or for an export that must be exact). */
+  force?: boolean;
+}
+
 export interface TableStore<T> {
   items: Ref<T[]>;
   loading: Ref<boolean>;
   error: Ref<string>;
-  load: () => Promise<StoreResult<T[]>>;
+  load: (options?: LoadOptions) => Promise<StoreResult<T[]>>;
   create: (payload: Partial<T>) => Promise<StoreResult<T>>;
   update: (id: string, payload: Partial<T>) => Promise<StoreResult<T>>;
   remove: (id: string) => Promise<StoreResult<null>>;
@@ -34,7 +39,20 @@ export function createTableStore<T extends { id: string }>(options: TableStoreOp
   const loading = ref(false);
   const error = ref("");
 
-  const load = async (): Promise<StoreResult<T[]>> => {
+  // These are MASTER tables (excavators, pits, materials, locations, truck models):
+  // they change only when someone edits them on a Settings page, and create/update/
+  // remove already patch `items` locally. But every date-scoped store used to await
+  // load() at the top of its fetch, so a single date change re-read all five of them
+  // — and several stores loading at once fired the same query three or four times
+  // over. So: concurrent calls share one request, and a table read within
+  // FRESH_MS is served from memory. Cross-device edits still appear (the next load
+  // after that window re-reads), and `force` guarantees a fresh read where the caller
+  // needs one.
+  const FRESH_MS = 60000;
+  let loadedAt = 0;
+  let inflight: Promise<StoreResult<T[]>> | null = null;
+
+  const read = async (): Promise<StoreResult<T[]>> => {
     loading.value = true;
     error.value = "";
 
@@ -49,7 +67,20 @@ export function createTableStore<T extends { id: string }>(options: TableStoreOp
     }
 
     items.value = (data ?? []) as T[];
+    loadedAt = Date.now();
     return { ok: true, data: items.value };
+  };
+
+  const load = (options?: LoadOptions): Promise<StoreResult<T[]>> => {
+    if (!options?.force) {
+      if (inflight) return inflight;
+      if (loadedAt && Date.now() - loadedAt < FRESH_MS) return Promise.resolve({ ok: true, data: items.value });
+    }
+    const request = read().finally(() => {
+      if (inflight === request) inflight = null;
+    });
+    inflight = request;
+    return request;
   };
 
   const create = async (payload: Partial<T>): Promise<StoreResult<T>> => {

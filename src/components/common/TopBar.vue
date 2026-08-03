@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuth } from "../../composables/useAuth.js";
 import { useShiftSelection } from "../../composables/useShiftSelection.js";
 import { useIsMobile } from "../../composables/useIsMobile.js";
+import { schedulePreload } from "../../composables/usePreloadDates.js";
 import logoUrl from "../../assets/thaidrill-logo.png";
 
 const { user, logout } = useAuth();
@@ -43,6 +44,10 @@ onMounted(() => {
   timerId = window.setInterval(() => {
     now.value = new Date();
   }, 1000);
+  // Once a real page is open (so never on the login screen), batch-load the recent
+  // date window in the background — after that the date picker needs no round trip.
+  // Runs once per session; see usePreloadDates.
+  schedulePreload();
 });
 
 onUnmounted(() => {

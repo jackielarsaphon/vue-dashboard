@@ -1,5 +1,9 @@
 import { computed, ref, watch } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
+import { createDateLoader } from "../lib/dateLoader.js";
+import { dropDate, dropDates, keepDates } from "../lib/dropDate.js";
+import { PRELOAD_DAYS } from "../lib/recentDates.js";
+import { forgetShiftsForDate, rememberShift, shiftIndexForDate, shiftIndexForDates } from "./useShiftIds.js";
 import { useShiftSelection } from "./useShiftSelection.js";
 import { useAuth } from "./useAuth.js";
 import { useUsers } from "./useUsers.js";
@@ -234,18 +238,22 @@ const SHIFT_HOURS = {
   Night: [18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5],
 };
 
-const findShiftIds = async (date) => {
-  const { data, error } = await supabase.from("shifts").select("id, shift_type").eq("shift_date", date);
-  return error ? [] : data || [];
-};
-
 const getOrCreateShiftId = async (date, shiftType) => {
   const cacheKey = shiftCacheKey(date, shiftType);
   if (shiftIdCache.value[cacheKey]) return shiftIdCache.value[cacheKey];
 
+  // The date's shifts are usually already in the shared cache (every date-scoped
+  // store reads it), so this normally costs no round trip at all.
+  const known = (await shiftIndexForDate(date)).rows.find((row) => row.shift_type === shiftType);
+  if (known) {
+    shiftIdCache.value = { ...shiftIdCache.value, [cacheKey]: known.id };
+    return known.id;
+  }
+
   const { data } = await supabase.from("shifts").select("id").eq("shift_date", date).eq("shift_type", shiftType).maybeSingle();
   if (data) {
     shiftIdCache.value = { ...shiftIdCache.value, [cacheKey]: data.id };
+    rememberShift(date, shiftType, data.id);
     return data.id;
   }
 
@@ -254,10 +262,14 @@ const getOrCreateShiftId = async (date, shiftType) => {
     const { data: existing } = await supabase.from("shifts").select("id").eq("shift_date", date).eq("shift_type", shiftType).maybeSingle();
     if (!existing) return null;
     shiftIdCache.value = { ...shiftIdCache.value, [cacheKey]: existing.id };
+    rememberShift(date, shiftType, existing.id);
     return existing.id;
   }
 
   shiftIdCache.value = { ...shiftIdCache.value, [cacheKey]: created.id };
+  // Fold the new row into the shared cache so the other stores see it without
+  // re-querying the date.
+  rememberShift(date, shiftType, created.id);
   return created.id;
 };
 
@@ -271,7 +283,7 @@ const getOrCreateDumpingAreaId = async (code) => {
 
   const { data } = await supabase.from("dumping_areas").select("id").eq("code", code).maybeSingle();
   if (data) {
-    await dumpingAreasStore.load();
+    await dumpingAreasStore.load({ force: true });
     return data.id;
   }
 
@@ -281,13 +293,13 @@ const getOrCreateDumpingAreaId = async (code) => {
     .select("id")
     .single();
   if (!error && created) {
-    await dumpingAreasStore.load();
+    await dumpingAreasStore.load({ force: true });
     return created.id;
   }
 
   const { data: again } = await supabase.from("dumping_areas").select("id").eq("code", code).maybeSingle();
   if (again) {
-    await dumpingAreasStore.load();
+    await dumpingAreasStore.load({ force: true });
     return again.id;
   }
   return null;
@@ -305,7 +317,7 @@ const getOrCreateMaterialId = async (code) => {
 
   const { data } = await supabase.from("materials").select("id").eq("code", code).maybeSingle();
   if (data) {
-    await materialsStore.load();
+    await materialsStore.load({ force: true });
     return data.id;
   }
 
@@ -315,13 +327,13 @@ const getOrCreateMaterialId = async (code) => {
     .select("id")
     .single();
   if (!error && created) {
-    await materialsStore.load();
+    await materialsStore.load({ force: true });
     return created.id;
   }
 
   const { data: again } = await supabase.from("materials").select("id").eq("code", code).maybeSingle();
   if (again) {
-    await materialsStore.load();
+    await materialsStore.load({ force: true });
     return again.id;
   }
   return null;
@@ -332,7 +344,21 @@ const getOrCreateMaterialId = async (code) => {
 // { [key]: { [excavatorUid]: { rows } } } shape so sumBucket/getBucket/entries
 // can stay synchronous lookups against this cache instead of one Supabase
 // call per (date, shift, hour) combination.
-const fetchDateEntries = async (date) => {
+//
+// All seven per-shift tables are asked for at once (one parallel wave, not seven
+// waits in a row) and the results are applied in dependency order afterwards. With
+// the shifts lookup shared (useShiftIds) a date costs two round trips end to end.
+// Repeat visits to a date cost none at all — see the loader below.
+//
+// Takes a LIST of dates: the opening batch load (usePreloadDates) hands it the whole
+// recent window so one wave of queries covers every date the user is likely to open,
+// and switching between them then needs no query at all. `skipLoaded` keeps that batch
+// from committing over a date already in memory — it must never undo trips being keyed
+// while it is in flight.
+const fetchDatesEntries = async (dateList, { skipLoaded = false } = {}) => {
+  const dates = [...new Set(dateList)].filter(Boolean).sort();
+  if (!dates.length) return;
+
   await Promise.all([
     excavatorsStore.load(),
     areaExcavatorsStore.load(),
@@ -343,29 +369,55 @@ const fetchDateEntries = async (date) => {
     truckModelsStore.load(),
   ]);
 
-  const shifts = await findShiftIds(date);
-  shifts.forEach((row) => {
-    shiftIdCache.value = { ...shiftIdCache.value, [shiftCacheKey(date, row.shift_type)]: row.id };
-  });
-  const shiftTypeById = Object.fromEntries(shifts.map((row) => [row.id, row.shift_type]));
-  const shiftIds = shifts.map((row) => row.id);
+  const { ids: shiftIds, typeById: shiftTypeById, dateById: shiftDateById } = await shiftIndexForDates(dates);
+  if (shiftIds.length) {
+    const nextShiftIds = { ...shiftIdCache.value };
+    shiftIds.forEach((id) => {
+      nextShiftIds[shiftCacheKey(shiftDateById[id], shiftTypeById[id])] = id;
+    });
+    shiftIdCache.value = nextShiftIds;
+  }
 
   const newEntries = {};
-  ["Day", "Night"].forEach((shiftType) => {
-    for (let hour = 0; hour < 24; hour += 1) newEntries[keyFor(date, shiftType, hour)] = {};
+  dates.forEach((date) => {
+    ["Day", "Night"].forEach((shiftType) => {
+      for (let hour = 0; hour < 24; hour += 1) newEntries[keyFor(date, shiftType, hour)] = {};
+    });
   });
 
-  if (shiftIds.length) {
-    const { data, error } = await supabase
-      .from("production_entries")
-      .select("log_hour, trips, excavator_id, mining_area_id, placement_id, material_id, dumping_area_id, truck_model_id, shift_id, created_by")
-      .in("shift_id", shiftIds);
+  // Which cache key a row belongs to — its shift carries both the date and the shift
+  // type, so a batch spanning several dates lands in the right buckets.
+  const keyOf = (row) => {
+    const shiftType = shiftTypeById[row.shift_id];
+    const rowDate = shiftDateById[row.shift_id];
+    return shiftType && rowDate ? keyFor(rowDate, shiftType, row.log_hour) : null;
+  };
+
+  // One wave of queries. `skip` covers the tables whose migration may not have run
+  // yet (they self-disable on the first missing-table error, as before).
+  const forShifts = (table, columns, skip = false) =>
+    skip || !shiftIds.length ? Promise.resolve({ data: null, error: null }) : Promise.resolve(supabase.from(table).select(columns).in("shift_id", shiftIds));
+
+  const [entryRes, digRes, notesRes, rlRes, trucksRes, removedRes, editorsRes] = await Promise.all([
+    forShifts(
+      "production_entries",
+      "log_hour, trips, excavator_id, mining_area_id, placement_id, material_id, dumping_area_id, truck_model_id, shift_id, created_by",
+    ),
+    forShifts("entry_dig_blocks", "placement_id, shift_id, log_hour, material_id, dumping_area_id, truck_model_id, dig_block", digBlocksMissing),
+    forShifts("placement_notes", "placement_id, shift_id, log_hour, note"),
+    forShifts("placement_rl", "placement_id, shift_id, log_hour, rl_meters"),
+    forShifts("placement_trucks", "placement_id, shift_id, log_hour, truck_count", placementTrucksMissing),
+    forShifts("placement_removed", "placement_id, shift_id, log_hour"),
+    forShifts("placement_editors", "placement_id, shift_id, log_hour, created_by, edited_by", placementEditorsMissing),
+  ]);
+
+  {
+    const { data, error } = entryRes;
 
     if (!error && data) {
       data.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const key = keyFor(date, shiftType, row.log_hour);
+        const key = keyOf(row);
+        if (!key) return;
         const bucket = newEntries[key] || (newEntries[key] = {});
         const slot = row.placement_id || legacySlot(row.excavator_id, row.mining_area_id);
         const excEntry =
@@ -400,18 +452,14 @@ const fetchDateEntries = async (date) => {
   // belongs to, so it travels with the row like material / location / dump model.
   // Best-effort: if the table hasn't been created yet the query errors and dig
   // blocks simply read blank until the migration is run.
-  if (shiftIds.length && !digBlocksMissing) {
-    const { data: digRows, error: digError } = await supabase
-      .from("entry_dig_blocks")
-      .select("placement_id, shift_id, log_hour, material_id, dumping_area_id, truck_model_id, dig_block")
-      .in("shift_id", shiftIds);
+  {
+    const { data: digRows, error: digError } = digRes;
     if (isMissingTableError(digError)) {
       digBlocksMissing = true;
     } else if (!digError && digRows) {
       digRows.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const entry = newEntries[keyFor(date, shiftType, row.log_hour)]?.[row.placement_id];
+        const key = keyOf(row);
+        const entry = key ? newEntries[key]?.[row.placement_id] : null;
         if (!entry) return;
         const materialCode = codeOf(materialsStore.items.value, row.material_id);
         const dumpCode = codeOf(dumpingAreasStore.items.value, row.dumping_area_id);
@@ -424,16 +472,12 @@ const fetchDateEntries = async (date) => {
 
   // Per-hour Production notes for the date.
   const newNotes = {};
-  if (shiftIds.length) {
-    const { data: notes, error: notesError } = await supabase
-      .from("placement_notes")
-      .select("placement_id, shift_id, log_hour, note")
-      .in("shift_id", shiftIds);
+  {
+    const { data: notes, error: notesError } = notesRes;
     if (!notesError && notes) {
       notes.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const key = keyFor(date, shiftType, row.log_hour);
+        const key = keyOf(row);
+        if (!key) return;
         (newNotes[key] = newNotes[key] || {})[row.placement_id] = row.note || "";
       });
     }
@@ -441,16 +485,12 @@ const fetchDateEntries = async (date) => {
 
   // Per-hour RL / bench level for the date.
   const newRl = {};
-  if (shiftIds.length) {
-    const { data: rlRows, error: rlError } = await supabase
-      .from("placement_rl")
-      .select("placement_id, shift_id, log_hour, rl_meters")
-      .in("shift_id", shiftIds);
+  {
+    const { data: rlRows, error: rlError } = rlRes;
     if (!rlError && rlRows) {
       rlRows.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const key = keyFor(date, shiftType, row.log_hour);
+        const key = keyOf(row);
+        if (!key) return;
         (newRl[key] = newRl[key] || {})[row.placement_id] = row.rl_meters;
       });
     }
@@ -460,18 +500,14 @@ const fetchDateEntries = async (date) => {
   // table hasn't been created yet, this query errors and trucks simply read blank
   // until the migration is run.
   const newTrucks = {};
-  if (shiftIds.length && !placementTrucksMissing) {
-    const { data: truckRows, error: trucksError } = await supabase
-      .from("placement_trucks")
-      .select("placement_id, shift_id, log_hour, truck_count")
-      .in("shift_id", shiftIds);
+  {
+    const { data: truckRows, error: trucksError } = trucksRes;
     if (isMissingTableError(trucksError)) {
       placementTrucksMissing = true;
     } else if (!trucksError && truckRows) {
       truckRows.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const key = keyFor(date, shiftType, row.log_hour);
+        const key = keyOf(row);
+        if (!key) return;
         (newTrucks[key] = newTrucks[key] || {})[row.placement_id] = row.truck_count;
       });
     }
@@ -479,16 +515,12 @@ const fetchDateEntries = async (date) => {
 
   // Per-hour removals: which placements were removed in which (shift, hour).
   const newRemoved = {};
-  if (shiftIds.length) {
-    const { data: removed, error: removedError } = await supabase
-      .from("placement_removed")
-      .select("placement_id, shift_id, log_hour")
-      .in("shift_id", shiftIds);
+  {
+    const { data: removed, error: removedError } = removedRes;
     if (!removedError && removed) {
       removed.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const key = keyFor(date, shiftType, row.log_hour);
+        const key = keyOf(row);
+        if (!key) return;
         (newRemoved[key] = newRemoved[key] || {})[row.placement_id] = true;
       });
     }
@@ -498,33 +530,64 @@ const fetchDateEntries = async (date) => {
   // placement_editors table hasn't been created yet, this query errors and we
   // simply fall back to production_entries.created_by for the display.
   const newEditors = {};
-  if (shiftIds.length && !placementEditorsMissing) {
-    const { data: editors, error: editorsError } = await supabase
-      .from("placement_editors")
-      .select("placement_id, shift_id, log_hour, created_by, edited_by")
-      .in("shift_id", shiftIds);
+  {
+    const { data: editors, error: editorsError } = editorsRes;
     if (isMissingTableError(editorsError)) {
       placementEditorsMissing = true;
     } else if (!editorsError && editors) {
       editors.forEach((row) => {
-        const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const key = keyFor(date, shiftType, row.log_hour);
+        const key = keyOf(row);
+        if (!key) return;
         (newEditors[key] = newEditors[key] || {})[row.placement_id] = { addedBy: row.created_by || null, editedBy: row.edited_by || null };
       });
     }
   }
 
-  entriesByKey.value = newEntries;
-  draftRowsByKey.value = {};
-  notesByKey.value = newNotes;
-  rlByKey.value = newRl;
-  trucksByKey.value = newTrucks;
-  removedByKey.value = newRemoved;
-  editorsByKey.value = newEditors;
+  // Which of the fetched dates actually get written:
+  //   • a batch preload leaves any date already in memory alone (skipLoaded), and
+  //   • a single-date load is dropped if the user has since moved on, so a slow
+  //     response can't overwrite the date now on screen.
+  const commit = dates.filter((d) => !(skipLoaded && entriesLoader.isLoaded(d)));
+  if (!skipLoaded && !entriesLoader.isCurrent(dates[0])) return;
+  if (!commit.length) return;
+
+  // Replace the committed dates' keys (the server is the truth for them — a row
+  // deleted on another device disappears) and keep every other date in memory.
+  entriesByKey.value = { ...dropDates(entriesByKey.value, commit), ...keepDates(newEntries, commit) };
+  draftRowsByKey.value = dropDates(draftRowsByKey.value, commit);
+  notesByKey.value = { ...dropDates(notesByKey.value, commit), ...keepDates(newNotes, commit) };
+  rlByKey.value = { ...dropDates(rlByKey.value, commit), ...keepDates(newRl, commit) };
+  trucksByKey.value = { ...dropDates(trucksByKey.value, commit), ...keepDates(newTrucks, commit) };
+  removedByKey.value = { ...dropDates(removedByKey.value, commit), ...keepDates(newRemoved, commit) };
+  editorsByKey.value = { ...dropDates(editorsByKey.value, commit), ...keepDates(newEditors, commit) };
+
+  // A batch load fills dates the loader never requested — tell it they're in memory
+  // so switching to them issues no query.
+  if (skipLoaded) commit.forEach((d) => entriesLoader.markLoaded(d));
 };
 
-watch(() => selection.date, (date) => fetchDateEntries(date), { immediate: true });
+const fetchDateEntries = (date) => fetchDatesEntries([date]);
+
+// Drop a date the loader has aged out, so browsing a month of history doesn't keep
+// 48 hour-keys per date × seven caches alive for the session.
+const forgetDate = (date) => {
+  entriesByKey.value = dropDate(entriesByKey.value, date);
+  draftRowsByKey.value = dropDate(draftRowsByKey.value, date);
+  notesByKey.value = dropDate(notesByKey.value, date);
+  rlByKey.value = dropDate(rlByKey.value, date);
+  trucksByKey.value = dropDate(trucksByKey.value, date);
+  removedByKey.value = dropDate(removedByKey.value, date);
+  editorsByKey.value = dropDate(editorsByKey.value, date);
+  shiftIdCache.value = dropDate(shiftIdCache.value, date);
+  forgetShiftsForDate(date);
+};
+
+// A date already loaded is served from memory — switching back to it runs no query
+// at all. reload() (useLiveRefresh, and after a write) forces a real re-read. `keep`
+// covers the opening batch window (usePreloadDates) plus room to browse past it.
+const entriesLoader = createDateLoader({ load: fetchDateEntries, onEvict: forgetDate, keep: PRELOAD_DAYS + 3 });
+
+watch(() => selection.date, (date) => entriesLoader.request(date), { immediate: true });
 
 // Auto-save the selected production date/shift: whenever DATE or SHIFT changes
 // (or on first load), ensure a shifts row exists in the database for it, so the
@@ -763,7 +826,7 @@ const removeAreaExcavatorPlacement = async (placementId) => {
 // (both shifts, every hour). Scoped by placement_id, so another row of the same
 // excavator — in this pit or another — is never touched.
 const removePlacementTripsForDate = async (placementId, date) => {
-  const shiftIds = (await findShiftIds(date)).map((row) => row.id);
+  const { ids: shiftIds } = await shiftIndexForDate(date);
   if (shiftIds.length) {
     await supabase.from("production_entries").delete().in("shift_id", shiftIds).eq("placement_id", placementId);
     if (!digBlocksMissing) await supabase.from("entry_dig_blocks").delete().in("shift_id", shiftIds).eq("placement_id", placementId);
@@ -1464,6 +1527,9 @@ export const useEntryStore = () => ({
   ensureShift: (date, shiftType) => getOrCreateShiftId(date, shiftType),
   // Re-fetch every placement + production entry for the selected date (also
   // reloads the excavator / area / material stores). Lets a dashboard pick up
-  // rows entered on another device without a full page reload.
-  reload: () => fetchDateEntries(selection.date),
+  // rows entered on another device without a full page reload. Always a real
+  // re-read — it bypasses the per-date cache.
+  reload: () => entriesLoader.request(selection.date, { force: true }),
+  // Batch-load a span of dates in one wave of queries (the opening preload).
+  preloadDates: (dates) => fetchDatesEntries(dates, { skipLoaded: true }),
 });

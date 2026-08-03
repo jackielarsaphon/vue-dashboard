@@ -85,12 +85,14 @@ export function useBackupExport() {
   // Reads every trip logged between `from` and `to` (inclusive) and groups it by
   // shift_date. Throws on a query error so the callers can surface one message.
   const runScan = async (from, to) => {
+    // A backup must reflect the masters exactly as they are now, so these bypass
+    // the stores' short freshness window.
     await Promise.all([
-      excavatorsStore.load(),
-      miningAreasStore.load(),
-      materialsStore.load(),
-      dumpingAreasStore.load(),
-      truckModelsStore.load(),
+      excavatorsStore.load({ force: true }),
+      miningAreasStore.load({ force: true }),
+      materialsStore.load({ force: true }),
+      dumpingAreasStore.load({ force: true }),
+      truckModelsStore.load({ force: true }),
       reloadRoutes(),
       // Truck Factor column: the weekly tonnes/trip history, so each date gets the
       // factor that was in effect for its own week.

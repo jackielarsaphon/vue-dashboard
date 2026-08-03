@@ -1,7 +1,14 @@
 import { ref, watch } from "vue";
 import { supabase } from "../lib/supabaseClient.js";
+import { createDateLoader } from "../lib/dateLoader.js";
+import { dropDate, dropDates, keepDates } from "../lib/dropDate.js";
+import { PRELOAD_DAYS } from "../lib/recentDates.js";
+import { shiftIndexForDates } from "./useShiftIds.js";
 import { useShiftSelection } from "./useShiftSelection.js";
 import { useEntryStore } from "./useEntryStore.js";
+
+// A query that is skipped still has to hand back the { data, error } shape.
+const EMPTY_RESULT = Promise.resolve({ data: null, error: null });
 
 // Persistence + reads for the "Plan Production" step on the Data entry page.
 // Each plan row is one pattern/pit (a free-form code typed in the search box)
@@ -46,26 +53,45 @@ const isMissingTableError = (error) =>
 
 // Loads both shifts for a calendar date in one query, re-grouped by
 // date_shiftType -> { patternCode: { soil, ore } } so reads stay synchronous.
-const fetchPlans = async (date) => {
+//
+// The date's own plans, its priorities and the carry-forward lookup all go out in
+// one parallel wave (the shifts row itself comes from the shared cache), so a date
+// costs two round trips instead of five in a row. A date already loaded costs none
+// — see the loader below.
+const fetchDatesPlans = async (dateList, { skipLoaded = false } = {}) => {
+  const dates = [...new Set(dateList)].filter(Boolean).sort();
+  if (!dates.length) return;
   loading.value = true;
 
-  const { data: shifts, error: shiftError } = await supabase.from("shifts").select("id, shift_type").eq("shift_date", date);
-  const shiftTypeById = shiftError ? {} : Object.fromEntries((shifts || []).map((row) => [row.id, row.shift_type]));
-  const shiftIds = Object.keys(shiftTypeById);
+  const earliest = dates[0];
+  const { ids: shiftIds, typeById: shiftTypeById, dateById: shiftDateById } = await shiftIndexForDates(dates);
 
-  const next = { [planKey(date, "Day")]: {}, [planKey(date, "Night")]: {} };
+  const next = {};
+  dates.forEach((date) => {
+    next[planKey(date, "Day")] = {};
+    next[planKey(date, "Night")] = {};
+  });
+
+  const [plansRes, prioRes, priorShiftsRes] = await Promise.all([
+    shiftIds.length ? Promise.resolve(supabase.from("production_plans").select("shift_id, pattern_code, soil_tonnes, ore_tonnes").in("shift_id", shiftIds)) : EMPTY_RESULT,
+    shiftIds.length && !planPrioritiesMissing
+      ? Promise.resolve(supabase.from("plan_priorities").select("shift_id, pattern_code, priority").in("shift_id", shiftIds))
+      : EMPTY_RESULT,
+    // Everything before the EARLIEST date asked for: one scan covers the carry-forward
+    // of every date in the batch (each date also inherits from the batch's own days,
+    // added below).
+    planPrioritiesMissing ? EMPTY_RESULT : Promise.resolve(supabase.from("shifts").select("id, shift_date").lt("shift_date", earliest)),
+  ]);
 
   if (shiftIds.length) {
-    const { data, error } = await supabase
-      .from("production_plans")
-      .select("shift_id, pattern_code, soil_tonnes, ore_tonnes")
-      .in("shift_id", shiftIds);
+    const { data, error } = plansRes;
 
     if (!error && data) {
       data.forEach((row) => {
         const shiftType = shiftTypeById[row.shift_id];
-        if (!shiftType) return;
-        const bucket = next[planKey(date, shiftType)] || (next[planKey(date, shiftType)] = {});
+        const rowDate = shiftDateById[row.shift_id];
+        if (!shiftType || !rowDate) return;
+        const bucket = next[planKey(rowDate, shiftType)] || (next[planKey(rowDate, shiftType)] = {});
         // priority tri-state: undefined = no plan_priorities record (eligible for
         // carry-forward) · null = explicitly cleared this day (stays blank) · number = own.
         bucket[row.pattern_code] = { soil: Number(row.soil_tonnes) || 0, ore: Number(row.ore_tonnes) || 0, priority: undefined };
@@ -74,17 +100,15 @@ const fetchPlans = async (date) => {
 
     // Hand-set priorities for the same (shift, pattern), from the separate table.
     if (!planPrioritiesMissing) {
-      const { data: prio, error: prioError } = await supabase
-        .from("plan_priorities")
-        .select("shift_id, pattern_code, priority")
-        .in("shift_id", shiftIds);
+      const { data: prio, error: prioError } = prioRes;
       if (isMissingTableError(prioError)) {
         planPrioritiesMissing = true;
       } else if (!prioError && prio) {
         prio.forEach((row) => {
           const shiftType = shiftTypeById[row.shift_id];
-          if (!shiftType) return;
-          const bucket = next[planKey(date, shiftType)] || (next[planKey(date, shiftType)] = {});
+          const rowDate = shiftDateById[row.shift_id];
+          if (!shiftType || !rowDate) return;
+          const bucket = next[planKey(rowDate, shiftType)] || (next[planKey(rowDate, shiftType)] = {});
           const entry = bucket[row.pattern_code] || (bucket[row.pattern_code] = { soil: 0, ore: 0, priority: undefined });
           // A row that EXISTS records the state: null = explicit clear, number = own.
           entry.priority = row.priority == null ? null : Number(row.priority);
@@ -98,12 +122,13 @@ const fetchPlans = async (date) => {
   // keep the record from the latest prior shift_date — a number carries the value, a
   // null (explicit clear on a later day) carries "blank" and thus overrides an older
   // value. Forward-only across dates; a day never inherits from a later one.
-  const carried = {}; // code -> number (carry value) | null (carry blank)
+  //
+  // The prior-shifts half scans the whole history, so it is the widest read on the
+  // page: one scan now serves the whole batch of dates, and each date's result is
+  // then cached in carriedPriorityByDate.
+  const priorRecords = []; // { date, code, priority } from days before `earliest`
   if (!planPrioritiesMissing) {
-    const { data: priorShifts, error: priorShiftErr } = await supabase
-      .from("shifts")
-      .select("id, shift_date")
-      .lt("shift_date", date);
+    const { data: priorShifts, error: priorShiftErr } = priorShiftsRes;
     if (!priorShiftErr && priorShifts && priorShifts.length) {
       const dateById = Object.fromEntries(priorShifts.map((s) => [s.id, s.shift_date]));
       const { data: priorPrio, error: priorPrioErr } = await supabase
@@ -116,25 +141,64 @@ const fetchPlans = async (date) => {
       if (isMissingTableError(priorPrioErr)) {
         planPrioritiesMissing = true;
       } else if (priorPrio) {
-        const latestByCode = {}; // pattern_code -> shift_date the chosen record came from
         priorPrio.forEach((row) => {
           const d = dateById[row.shift_id];
-          if (!d) return;
-          if (!latestByCode[row.pattern_code] || d > latestByCode[row.pattern_code]) {
-            latestByCode[row.pattern_code] = d;
-            carried[row.pattern_code] = row.priority == null ? null : Number(row.priority);
-          }
+          if (d) priorRecords.push({ date: d, code: row.pattern_code, priority: row.priority });
         });
       }
     }
   }
+  // The batch's own days are prior days to each other, so fold them in too.
+  Object.entries(next).forEach(([key, bucket]) => {
+    const rowDate = key.slice(0, key.indexOf("_"));
+    Object.entries(bucket).forEach(([code, entry]) => {
+      if (entry.priority !== undefined) priorRecords.push({ date: rowDate, code, priority: entry.priority });
+    });
+  });
 
-  plansByKey.value = { ...plansByKey.value, ...next };
-  carriedPriorityByDate.value = { ...carriedPriorityByDate.value, [date]: carried };
+  // Per date: the latest record STRICTLY BEFORE it wins.
+  const carriedFor = (date) => {
+    const latestByCode = {};
+    const carried = {};
+    priorRecords.forEach(({ date: d, code, priority }) => {
+      if (d >= date) return;
+      if (!latestByCode[code] || d > latestByCode[code]) {
+        latestByCode[code] = d;
+        carried[code] = priority == null ? null : Number(priority);
+      }
+    });
+    return carried;
+  };
+
+  const commit = dates.filter((d) => !(skipLoaded && plansLoader.isLoaded(d)));
+  // A late response for a date the user has already left must not land on screen.
+  if ((!skipLoaded && !plansLoader.isCurrent(dates[0])) || !commit.length) {
+    loading.value = false;
+    return;
+  }
+
+  plansByKey.value = { ...dropDates(plansByKey.value, commit), ...keepDates(next, commit) };
+  const nextCarried = { ...carriedPriorityByDate.value };
+  commit.forEach((date) => {
+    nextCarried[date] = carriedFor(date);
+    if (skipLoaded) plansLoader.markLoaded(date);
+  });
+  carriedPriorityByDate.value = nextCarried;
   loading.value = false;
 };
 
-watch(() => selection.date, (date) => fetchPlans(date), { immediate: true });
+const fetchPlans = (date) => fetchDatesPlans([date]);
+
+const forgetPlanDate = (date) => {
+  plansByKey.value = dropDate(plansByKey.value, date);
+  const nextCarried = { ...carriedPriorityByDate.value };
+  delete nextCarried[date];
+  carriedPriorityByDate.value = nextCarried;
+};
+
+const plansLoader = createDateLoader({ load: fetchPlans, onEvict: forgetPlanDate, keep: PRELOAD_DAYS + 3 });
+
+watch(() => selection.date, (date) => plansLoader.request(date), { immediate: true });
 
 const getPlans = (date, shiftType) => plansByKey.value[planKey(date, shiftType)] || {};
 
@@ -290,5 +354,9 @@ export const usePlanProduction = () => ({
   savePlan,
   savePriority,
   removePlan,
-  reloadPlans: () => fetchPlans(selection.date),
+  reloadPlans: () => plansLoader.request(selection.date, { force: true }),
+  // Batch-load a CONTIGUOUS span of dates in one wave (the opening preload). The span
+  // must be contiguous: each date's priority carry-forward inherits from the days
+  // before it in the same batch.
+  preloadDates: (dates) => fetchDatesPlans(dates, { skipLoaded: true }),
 });
