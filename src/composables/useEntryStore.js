@@ -20,7 +20,10 @@ import { factorFor, setFactorForDate, DEFAULT_TONNES_PER_TRIP } from "./useTruck
 // Per-model tonnes/trip factors are effective-dated — see
 // useTruckFactors.js. DEFAULT_TONNES_PER_TRIP is the final fallback.
 export { DEFAULT_TONNES_PER_TRIP };
-export const BCM_PER_TRIP = 25;
+// There was a BCM_PER_TRIP = 25 here, converting trips to volume for the Fleet
+// overview. Nothing uses it: that page reports TONNES now, from the same per-model
+// factor Data entry uses, so the two pages agree on the same trips (a flat volume per
+// trip also credited a small truck the same as a big one).
 
 // A row is now one material + dumping-area + dump-model combination with a
 // single trip count (previously: one row per material+dump with a trips array

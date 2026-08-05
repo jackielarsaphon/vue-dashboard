@@ -3,7 +3,7 @@ import { computed, ref, watchEffect } from "vue";
 import { useAreaTargets } from "../composables/useAreaTargets.js";
 import { useTweaks } from "../composables/useTweaks.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
-import { useEntryStore, isWaste, rowTotal, rowTonnes, BCM_PER_TRIP } from "../composables/useEntryStore.js";
+import { useEntryStore, isWaste, rowTotal, rowTonnes } from "../composables/useEntryStore.js";
 import { usePlanProduction } from "../composables/usePlanProduction.js";
 import { useLiveRefresh } from "../composables/useLiveRefresh.js";
 import { useDownloadImage } from "../composables/useDownloadImage.js";
@@ -16,8 +16,10 @@ import TweakSection from "../components/common/TweakSection.vue";
 import TweakRadio from "../components/common/TweakRadio.vue";
 import TweakColor from "../components/common/TweakColor.vue";
 
-// Whole numbers only — drop the decimals by truncating (never round up).
-const fmt = (n) => Math.trunc(Number(n) || 0).toLocaleString("en-US");
+// Whole numbers only. Rounds (it used to truncate) so a tonnage reads the same here as
+// on Data entry, which rounds too: 7 trips × 46.53 is 326 t on both pages, not 326
+// there and 325 here. Trip counts are whole already, so rounding leaves them untouched.
+const fmt = (n) => Math.round(Number(n) || 0).toLocaleString("en-US");
 
 // When an excavator has no production note, fall back to a status-derived label
 // so the Remark column stays meaningful instead of always reading "Normal".
@@ -143,11 +145,16 @@ const rosterExcavators = computed(() => {
 });
 
 // Per-excavator stats for the currently selected HOUR — used by "Trips this hr"
-// and the "BCM by hour" chart, which are intentionally hour-scoped.
+// and the per-excavator waste chart, which are intentionally hour-scoped.
 const excRows = computed(() =>
   rosterExcavators.value.map((excavator) => {
     let waste = 0;
     let ore = 0;
+    // Tonnes alongside the trip counts: trips × the truck model's tonnes/trip factor
+    // in effect for the date (useTruckFactors), exactly as Data entry totals them —
+    // so the same 7 trips read 326 t on both pages.
+    let wasteTonnes = 0;
+    let oreTonnes = 0;
     // Build from REAL Data entry input for this hour. Trips come from the logged
     // entries (every pit this unit hauled in). On top of that, pits where the unit
     // only wrote a Production note (no trips — e.g. "broken down / being serviced")
@@ -160,8 +167,14 @@ const excRows = computed(() =>
       let entryTrips = 0;
       entry.rows.forEach((row) => {
         const total = rowTotal(row);
-        if (isWaste(row.material)) waste += total;
-        else ore += total;
+        const tonnes = rowTonnes(row);
+        if (isWaste(row.material)) {
+          waste += total;
+          wasteTonnes += tonnes;
+        } else {
+          ore += total;
+          oreTonnes += tonnes;
+        }
         entryTrips += total;
       });
       if (entryTrips > 0) {
@@ -191,8 +204,12 @@ const excRows = computed(() =>
       trip,
       oreTrip: ore,
       wasteTrip: waste,
-      waste: waste * BCM_PER_TRIP,
-      ore: ore * BCM_PER_TRIP,
+      // `waste` / `ore` are the figures the table and the per-excavator chart show:
+      // TONNES now, the same measure Data entry displays. (They used to be a flat
+      // 25 BCM per trip, which read differently from Data entry for the same trips
+      // and gave a small truck the same credit as a big one.)
+      waste: wasteTonnes,
+      ore: oreTonnes,
       hasNote,
     };
   }),
@@ -364,18 +381,29 @@ const hourlyBars = computed(() => {
   });
 });
 
-const bcmChart = { W: 580, H: 200, padL: 30, padR: 8, padT: 16, padB: 32, yMax: 300, target: 225 };
-// Live per-excavator waste BCM for the selected hour (replaces the old static mock rows).
-const bcmRows = computed(() => [...excRows.value].sort((a, b) => b.waste - a.waste));
-const bcmBars = computed(() => {
-  const { W, H, padL, padR, padT, padB, yMax } = bcmChart;
-  const cw = (W - padL - padR) / Math.max(1, bcmRows.value.length);
+// Per-excavator waste for the selected hour, in TONNES like the table above it.
+// WASTE_TONNES_TARGET is the old 225 BCM/hr line restated as tonnes (225 m³ at the
+// ~1.86 t/m³ implied by the current SKT105S factor) — one number to change if the
+// site's real hourly target differs.
+const WASTE_TONNES_TARGET = 420;
+const wasteChart = { W: 580, H: 200, padL: 34, padR: 8, padT: 16, padB: 32, target: WASTE_TONNES_TARGET };
+const wasteRows = computed(() => [...excRows.value].sort((a, b) => b.waste - a.waste));
+// The axis follows the hour's peak (and always clears the target line), so switching
+// units doesn't push bars off the top of a fixed 300 scale.
+const wasteYMax = computed(() => {
+  const peak = wasteRows.value.reduce((max, row) => Math.max(max, row.waste), 0);
+  return Math.max(100, Math.ceil((Math.max(peak, wasteChart.target) * 1.1) / 100) * 100);
+});
+const wasteTicks = computed(() => [0, 0.25, 0.5, 0.75, 1].map((factor) => Math.round(wasteYMax.value * factor)));
+const wasteBars = computed(() => {
+  const { W, H, padL, padR, padT, padB } = wasteChart;
+  const cw = (W - padL - padR) / Math.max(1, wasteRows.value.length);
   const bw = cw * 0.55;
   const innerH = H - padT - padB;
-  return bcmRows.value.map((row, i) => {
+  return wasteRows.value.map((row, i) => {
     const x = padL + i * cw + (cw - bw) / 2;
-    const h = (row.waste / yMax) * innerH;
-    return { ...row, x, bw, h, baseY: H - padB, below: row.waste < bcmChart.target };
+    const h = (row.waste / wasteYMax.value) * innerH;
+    return { ...row, x, bw, h, baseY: H - padB, below: row.waste < wasteChart.target };
   });
 });
 
@@ -489,8 +517,8 @@ const areaBars = computed(() => {
                   <th class="sortable" @click="setSort('trucks')">Trucks <span v-if="sortKey === 'trucks'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
                   <th class="sortable" @click="setSort('area')">Area <span v-if="sortKey === 'area'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
                   <th class="sortable" @click="setSort('trip')">Trip <span v-if="sortKey === 'trip'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
-                  <th class="sortable" @click="setSort('waste')">Waste BCM <span v-if="sortKey === 'waste'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
-                  <th class="sortable" @click="setSort('ore')">ORE BCM <span v-if="sortKey === 'ore'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
+                  <th class="sortable" @click="setSort('waste')">Waste (t) <span v-if="sortKey === 'waste'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
+                  <th class="sortable" @click="setSort('ore')">ORE (t) <span v-if="sortKey === 'ore'" class="caret">{{ asc ? "▲" : "▼" }}</span></th>
                   <th class="rmk">Remark</th>
                 </tr>
               </thead>
@@ -609,34 +637,34 @@ const areaBars = computed(() => {
       <section class="col-bottom">
         <div class="panel">
           <div class="panel-head">
-            <h2>BCM by hour</h2>
+            <h2>Waste tonnes by excavator</h2>
             <div class="legend mono">
-              <span><span class="lg-dot" style="background: var(--cool)" />BCM/Hr</span>
-              <span><span class="lg-dot ml" style="background: var(--alert)" />Target {{ bcmChart.target }}</span>
+              <span><span class="lg-dot" style="background: var(--cool)" />Tonnes/Hr</span>
+              <span><span class="lg-dot ml" style="background: var(--alert)" />Target {{ fmt(wasteChart.target) }}t</span>
             </div>
           </div>
-          <svg :viewBox="`0 0 ${bcmChart.W} ${bcmChart.H}`" class="chart">
-            <g v-for="tick in [0, 100, 200, 300]" :key="tick">
+          <svg :viewBox="`0 0 ${wasteChart.W} ${wasteChart.H}`" class="chart">
+            <g v-for="tick in wasteTicks" :key="tick">
               <line
-                :x1="bcmChart.padL"
-                :y1="bcmChart.padT + (bcmChart.H - bcmChart.padT - bcmChart.padB) * (1 - tick / bcmChart.yMax)"
-                :x2="bcmChart.W - bcmChart.padR"
-                :y2="bcmChart.padT + (bcmChart.H - bcmChart.padT - bcmChart.padB) * (1 - tick / bcmChart.yMax)"
+                :x1="wasteChart.padL"
+                :y1="wasteChart.padT + (wasteChart.H - wasteChart.padT - wasteChart.padB) * (1 - tick / wasteYMax)"
+                :x2="wasteChart.W - wasteChart.padR"
+                :y2="wasteChart.padT + (wasteChart.H - wasteChart.padT - wasteChart.padB) * (1 - tick / wasteYMax)"
                 class="grid"
               />
-              <text :x="bcmChart.padL - 6" :y="bcmChart.padT + (bcmChart.H - bcmChart.padT - bcmChart.padB) * (1 - tick / bcmChart.yMax) + 3" class="axis" text-anchor="end">{{ tick }}</text>
+              <text :x="wasteChart.padL - 6" :y="wasteChart.padT + (wasteChart.H - wasteChart.padT - wasteChart.padB) * (1 - tick / wasteYMax) + 3" class="axis" text-anchor="end">{{ tick }}</text>
             </g>
             <line
-              :x1="bcmChart.padL"
-              :x2="bcmChart.W - bcmChart.padR"
-              :y1="bcmChart.padT + (bcmChart.H - bcmChart.padT - bcmChart.padB) * (1 - bcmChart.target / bcmChart.yMax)"
-              :y2="bcmChart.padT + (bcmChart.H - bcmChart.padT - bcmChart.padB) * (1 - bcmChart.target / bcmChart.yMax)"
+              :x1="wasteChart.padL"
+              :x2="wasteChart.W - wasteChart.padR"
+              :y1="wasteChart.padT + (wasteChart.H - wasteChart.padT - wasteChart.padB) * (1 - wasteChart.target / wasteYMax)"
+              :y2="wasteChart.padT + (wasteChart.H - wasteChart.padT - wasteChart.padB) * (1 - wasteChart.target / wasteYMax)"
               class="target-line"
             />
-            <g v-for="bar in bcmBars" :key="bar.exc">
+            <g v-for="bar in wasteBars" :key="bar.exc">
               <rect :x="bar.x" :y="bar.baseY - bar.h" :width="bar.bw" :height="bar.h" :fill="bar.below ? 'var(--alert)' : 'var(--cool)'" :opacity="bar.below ? 0.8 : 1" />
-              <text :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.h - 4" class="bar-label mono" text-anchor="middle">{{ bar.waste }}</text>
-              <text :x="bar.x + bar.bw / 2" :y="bcmChart.H - 14" class="axis mono tiny" text-anchor="middle">{{ bar.exc.replace('E-', '') }}</text>
+              <text :x="bar.x + bar.bw / 2" :y="bar.baseY - bar.h - 4" class="bar-label mono" text-anchor="middle">{{ fmt(bar.waste) }}</text>
+              <text :x="bar.x + bar.bw / 2" :y="wasteChart.H - 14" class="axis mono tiny" text-anchor="middle">{{ bar.exc.replace('E-', '') }}</text>
             </g>
           </svg>
         </div>
