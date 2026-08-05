@@ -298,15 +298,33 @@ const savePlan = async (patternCode, { soil = 0, ore = 0 } = {}) => {
   return true;
 };
 
-// Upsert one pattern's hand-set Priority (1–4) for the selected date, on the same
-// canonical shift as savePlan. Blank / out-of-range writes an EXPLICIT clear (a null
-// row) so the day stays blank rather than inheriting a carried-forward value. Persists
-// to plan_priorities; keeps only the optimistic cache until that table is migrated.
+// Upsert one pattern's hand-set Priority (a rank from 1 to PRIORITY_MAX) for the
+// selected date, on the same canonical shift as savePlan. Blank / out-of-range writes
+// an EXPLICIT clear (a null row) so the day stays blank rather than inheriting a
+// carried-forward value. Persists to plan_priorities; keeps only the optimistic cache
+// until that table is migrated.
+//
+// The ceiling matches the database check in supabase/plan_priorities.sql — a value
+// above it would be rejected there, so it is clamped to a clear here instead.
+export const PRIORITY_MAX = 99;
+
+// What the Priority field keeps as the user types: digits only, no leading zeros
+// ("0" and "007" are not ranks), at most two digits, and anything outside 1–PRIORITY_MAX
+// clears it. Lives here so the field and savePriority can never disagree on the range.
+export const toPriorityInput = (value) => {
+  const digits = String(value ?? "")
+    .replace(/\D/g, "")
+    .slice(0, 2)
+    .replace(/^0+/, "");
+  const rank = Number(digits);
+  return digits && rank >= 1 && rank <= PRIORITY_MAX ? String(rank) : "";
+};
+
 const savePriority = async (patternCode, value) => {
   const code = String(patternCode || "").trim();
   if (!code) return false;
   const n = value === "" || value == null ? null : Number(value);
-  const priority = n != null && Number.isFinite(n) && n >= 1 && n <= 4 ? Math.round(n) : null;
+  const priority = n != null && Number.isFinite(n) && n >= 1 && n <= PRIORITY_MAX ? Math.round(n) : null;
 
   const canonicalKey = planKey(selection.date, CANONICAL_SHIFT);
   const canonicalBucket = { ...(plansByKey.value[canonicalKey] || {}) };

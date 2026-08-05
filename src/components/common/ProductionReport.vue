@@ -22,10 +22,11 @@ const fmt0 = (n) => Math.round(Number(n) || 0).toLocaleString("en-US");
 // daily Total, its Plan Production target and the % variance to plan. Tonnes
 // throughout — the same figures the KPI cards and the Plan column already use.
 //
-// Priority: use the value hand-set on the Plan Production step when present. When a
-// pit has no priority entered, fall back to a derived band from how far it's running
-// behind plan (achievement = Total ÷ Plan) — 1 (red, worst) … 4 (green, on plan) —
-// so the colour still flags where attention is needed.
+// Priority: use the value hand-set on the Plan Production step when present (a rank
+// from 1 up — see PRIORITY_MAX). When a pit has no priority entered, fall back to a
+// derived band from how far it's running behind plan (achievement = Total ÷ Plan) —
+// 1 (red, worst) … 4 (green, on plan) — so the colour still flags where attention is
+// needed. The colour scale stops at 4; ranks beyond it share the 4th band.
 const reportPriority = (achievement) => (achievement < 50 ? 1 : achievement < 75 ? 2 : achievement < 90 ? 3 : 4);
 
 const productionReport = computed(() => {
@@ -63,7 +64,10 @@ const productionReport = computed(() => {
       const variance = r.plan > 0 ? Math.round(((total - r.plan) / r.plan) * 100) : null;
       const achievement = r.plan > 0 ? (total / r.plan) * 100 : 100;
       const priority = r.planPriority != null ? r.planPriority : reportPriority(achievement);
-      return { ...r, dayTotal, nightTotal, total, variance, priority };
+      // Priority is a rank with no upper bound now, but the colour scale has four
+      // bands — anything past 4th is as "not urgent" as 4th, so it shares that
+      // colour while the cell still prints its real rank.
+      return { ...r, dayTotal, nightTotal, total, variance, priority, priorityBand: Math.min(4, Math.max(1, priority)) };
     })
     // Ordered by Priority (1 = most behind, first) so the number column reads in
     // order; pit code breaks ties so same-priority pits keep a stable sequence.
@@ -116,7 +120,7 @@ const reportTotals = computed(() => {
         </thead>
         <tbody>
           <tr v-for="r in productionReport" :key="r.pit">
-            <td class="prio-cell" :class="`prio-${r.priority}`">{{ r.priority }}</td>
+            <td class="prio-cell" :class="`prio-${r.priorityBand}`">{{ r.priority }}</td>
             <td class="exc">{{ r.pit }}</td>
             <td class="num mono col-day">{{ fmt0(r.day.waste) }}</td>
             <td class="num mono col-day">{{ fmt0(r.day.ore) }}</td>

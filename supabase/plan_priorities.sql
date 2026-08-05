@@ -1,7 +1,11 @@
 -- =============================================================================
--- plan_priorities — Priority (1–4) PER (pattern_code + shift), alongside the daily
--- Plan Production. Run in Supabase (yaxgqcopshhukofmmgla) → SQL Editor → Run.
+-- plan_priorities — Priority (a rank, 1–99) PER (pattern_code + shift), alongside the
+-- daily Plan Production. Run in Supabase (yaxgqcopshhukofmmgla) → SQL Editor → Run.
 -- Idempotent. Additive (does not touch existing tables). Run AFTER schema.sql.
+--
+-- The range was 1–4 originally. If this table already exists with that narrower
+-- check, run supabase/plan_priorities_widen.sql to lift it — `create table if not
+-- exists` below leaves an existing table's constraints untouched.
 -- =============================================================================
 -- Plan Production entered soil/ore per pattern in production_plans. This table adds
 -- a hand-set Priority for the same (shift, pattern) so the Fleet overview Production
@@ -16,7 +20,7 @@ create table if not exists public.plan_priorities (
   id           uuid primary key default gen_random_uuid(),
   shift_id     uuid not null references public.shifts (id) on delete cascade,
   pattern_code text not null,
-  priority     integer check (priority between 1 and 4),
+  priority     integer check (priority between 1 and 99),
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
   unique (shift_id, pattern_code)

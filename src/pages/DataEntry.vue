@@ -6,7 +6,7 @@ import { useMaterialRoutes } from "../composables/useMaterialRoutes.js";
 import { useShiftSelection } from "../composables/useShiftSelection.js";
 import { useIsMobile } from "../composables/useIsMobile.js";
 import { useEntryStore, isWaste, rowTotal, rowTonnes, tonnesPerTripFor, excTotal } from "../composables/useEntryStore.js";
-import { usePlanProduction } from "../composables/usePlanProduction.js";
+import { usePlanProduction, toPriorityInput } from "../composables/usePlanProduction.js";
 import { useRainfallLog, RAIN_INTENSITIES, durationMinutes, periodLabel, rainMinutes, redAlertMinutes } from "../composables/useRainfallLog.js";
 import { useRainfallExport } from "../composables/useRainfallExport.js";
 import { useAppAreas } from "../composables/useAppAreas.js";
@@ -269,13 +269,14 @@ const updatePitAmount = (type, event) => {
 // back until the user changes it in the field — so persistSelectedPit only saves
 // Priority for pits in this set. Cleared when the date changes (below).
 const priorityTouched = new Set();
-// Priority is a single 1–4 digit, not a tonnage — keep only 1–4 (blank clears it).
+// Priority is a rank, not a tonnage: any whole number from 1 to PRIORITY_MAX (blank
+// clears it). Two digits, so a site can rank more pits than the four the field used to
+// allow. toPriorityInput keeps the field and what is saved on the same range.
 const updatePitPriority = (value) => {
   if (!selectedPitName.value) return;
   const entry = pitAmounts.value[selectedPitName.value];
   if (!entry) return;
-  const digit = String(value ?? "").replace(/\D/g, "").slice(0, 1);
-  entry.priority = digit >= "1" && digit <= "4" ? digit : "";
+  entry.priority = toPriorityInput(value);
   priorityTouched.add(selectedPitName.value);
 };
 const parseCommaNumber = (value) => Number(String(value ?? "").replace(/,/g, "")) || 0;
@@ -1072,8 +1073,8 @@ onUnmounted(() => {
             class="entry-text-input mono"
             type="text"
             inputmode="numeric"
-            maxlength="1"
-            placeholder="1-4"
+            maxlength="2"
+            placeholder="1-99"
             :value="pitAmounts[selectedPitName]?.priority"
             @input="updatePitPriority($event.target.value)"
             @blur="persistSelectedPit"
